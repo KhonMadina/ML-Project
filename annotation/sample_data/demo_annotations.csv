@@ -1,0 +1,15 @@
+id,text,annotator,label
+1001,"ខ្ញុំស្រឡាញ់ផលិតផលនេះណាស់! ❤️",annotator_a,POS
+1001,"ខ្ញុំស្រឡាញ់ផលិតផលនេះណាស់! ❤️",annotator_b,POS
+1002,"សេវាកម្មអាក្រក់ណាស់ ខកចិត្ត",annotator_a,NEG
+1002,"សេវាកម្មអាក្រក់ណាស់ ខកចិត្ត",annotator_b,NEG
+1003,"អរគុណច្រើន សេវាកម្មល្អបំផុត 🙄",annotator_a,POS
+1003,"អរគុណច្រើន សេវាកម្មល្អបំផុត 🙄",annotator_b,NEG
+1004,"service ok price fair",annotator_a,NEU
+1004,"service ok price fair",annotator_b,POS
+1005,"សួស្តី មានអ្នកណាអាចជួយអត់?",annotator_a,NEU
+1005,"សួស្តី មានអ្នកណាអាចជួយអត់?",annotator_b,NEU
+1006,"so bad, never again 😡",annotator_a,NEG
+1006,"so bad, never again 😡",annotator_b,NEG
+1007,"មិនអាក្រក���ទេ តម្លៃសមរម្យ",annotator_a,POS
+1007,"មិនអាក្រក់ទេ តម្លៃសមរម្យ",annotator_b,NEU

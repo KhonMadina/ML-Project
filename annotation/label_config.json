@@ -1,0 +1,6 @@
+{
+  "version": "1.0",
+  "title": "Khmer Sentiment (3-class)",
+  "description": "Label Studio configuration for POS/NEG/NEU sentiment on Khmer texts",
+  "config": "<View>\n  <Text name=\"text\" value=\"$text\"/>\n  <Choices name=\"label\" toName=\"text\" choice=\"single\" showInline=\"true\">\n    <Choice value=\"POS\" background=\"#4CAF50\"/>\n    <Choice value=\"NEG\" background=\"#F44336\"/>\n    <Choice value=\"NEU\" background=\"#9E9E9E\"/>\n  </Choices>\n</View>"
+}

@@ -1,0 +1,241 @@
+project:
+  title: "Khmer Sentiment Analysis for Social Media"
+  objective: >
+    Develop, evaluate, and deploy a Machine Learning system that automatically classifies
+    Khmer-language social media posts into Positive, Negative, and Neutral sentiments.
+    Produce thesis-level research artifacts: clearly stated research questions, ethical
+    data collection/annotation pipeline, rigorous experimental design with baselines and
+    modern transformers, ablations, error/bias analysis, reproducible code, dataset/model
+    documentation, and a deployable web application.
+  language: "Khmer"
+  country_context: "Cambodia"
+  domain: "Social Media (Facebook, News Comments, etc.)"
+  research_questions:
+    - How do different tokenization/normalization strategies affect Khmer sentiment classification performance?
+    - What are the performance differences between classical ML baselines and pre-trained multilingual transformers (mBERT, XLM-R) on Khmer data?
+    - How robust are models to code-mixing (Khmer-English), emojis, informal spellings, and negation?
+  contributions:
+    - Curated and ethically sourced Khmer social media sentiment dataset with annotation guidelines and inter-annotator agreement.
+    - Reproducible training/evaluation pipeline with baselines and modern transformer models.
+    - Systematic ablations for tokenization, data size, and domain robustness.
+    - Error/bias analysis and public documentation (dataset card, model card).
+  risks_and_mitigations:
+    - Data access and ToS compliance: follow platform policies; respect robots.txt; rate limiting; remove PII.
+    - Low-resource language challenges: leverage multilingual PLMs; data augmentation; careful preprocessing.
+    - Annotation quality: double annotation, adjudication, target Cohen's kappa ≥ 0.7.
+  deliverables:
+    - data/: raw/ processed/ splits/ with a Dataset Card and license
+    - annotation/: guidelines.md, labeling schema, adjudication log, IAA report
+    - preprocessing/: cleaning, normalization, tokenization scripts
+    - experiments/: configs, logs, results, figures; MLflow or equivalent tracking
+    - models/: checkpoints, training scripts, Model Card
+    - evaluation/: metrics code, confusion matrices, error analysis
+    - app/: Streamlit/Flask app, packaging, and deployment instructions
+    - report/: thesis manuscript (Markdown/LaTeX), references, figures
+    - README.md with full reproducibility instructions
+  reproducibility:
+    python: 
+      version: 
+        - ">=3.9,<3.12"
+    frameworks:
+      - PyTorch or TensorFlow (choose one and pin versions)
+      - Transformers library for mBERT/XLM-R
+    seeds: [42, 1337, 2025]
+    environment:
+      - requirements.txt (pinned)
+      - optional: conda environment.yml and Dockerfile
+
+workflow:
+  - id: task0
+    name: Setup Context
+    prompt: >
+      You are a senior Machine Learning engineer and academic advisor. Build a complete
+      Khmer Sentiment Analysis project that classifies Khmer social media posts into
+      positive, negative, and neutral categories. Use Khmer text data and deliver dataset,
+      model, evaluation, and web app.
+    acceptance_criteria:
+      - Project structure initialized; README skeleton created.
+      - Research questions and contributions recorded.
+
+  - id: task1
+    name: Define Project Plan
+    prompt: >
+      1. Define project objectives, scope, and motivation.
+      2. Write a clear problem statement and research questions.
+      3. Explain challenges of Khmer sentiment analysis (tokenization, code-mixing, emojis, spelling variants).
+      4. Suggest 3–5 real-world use cases (e.g., political sentiment, product feedback, news comments).
+      5. Output structured proposal in Markdown with timeline and risk mitigation.
+    acceptance_criteria:
+      - Proposal.md with objectives, scope, timeline, risks, and expected contributions.
+
+  - id: task2
+    name: Literature Review Plan
+    prompt: >
+      1. Summarize at least 15–20 relevant papers on low-resource sentiment analysis, multilingual PLMs
+         (mBERT, XLM-R), tokenization for SE Asian scripts, and Khmer/related languages.
+      2. Organize into themes: datasets, preprocessing, modeling approaches, evaluation practices.
+      3. Provide a BibTeX file and a related-work matrix (paper vs. method/dataset/metrics).
+    acceptance_criteria:
+      - literature/ related_work.md and references.bib with ≥15 curated references.
+
+  - id: task3
+    name: Ethics, Legal, and Data Governance
+    prompt: >
+      1. Draft an ethics/IRB-style readiness checklist covering consent, ToS compliance, public data scope,
+         scraping policy, and PII removal strategy.
+      2. Define de-identification pipeline: remove usernames, IDs, URLs, emails, phone numbers.
+      3. Specify licensing for dataset release (if allowed) and data retention policy.
+      4. Produce a Data Management Plan (DMP) and risk assessment.
+    acceptance_criteria:
+      - ethics/ irb_checklist.md, data_management_plan.md, and deidentification.md.
+
+  - id: task4
+    name: Annotation Schema and Guidelines
+    prompt: >
+      1. Define 3-way label schema (Positive, Negative, Neutral) with edge cases: sarcasm, negation,
+         intensifiers, emojis, code-mixing, topic-dependent sentiment.
+      2. Write detailed annotation guidelines with Khmer examples.
+      3. Provide a Label Studio (or JSON) labeling config and instructions.
+    acceptance_criteria:
+      - annotation/ guidelines.md with examples and label_config.json.
+
+  - id: task5
+    name: Data Collection Specification
+    prompt: >
+      1. Describe ethical data collection methods (API, web scraping with robots.txt, manual annotation, public datasets).
+      2. Provide Python code templates for collecting Khmer text (e.g., snscrape for X/Twitter, requests+BS4 for websites)
+         with rate limiting and error handling.
+      3. Document source list and data fields (text, timestamp, source, language, meta).
+    acceptance_criteria:
+      - data_collection/ sources.md and collect_data.py templates with comments.
+
+  - id: task6
+    name: Inter-Annotator Agreement (IAA) and Adjudication
+    prompt: >
+      1. Plan double annotation for a subset (≥20%) and compute Cohen's kappa per label.
+      2. Provide code to compute IAA and an adjudication process for disagreements.
+      3. Target kappa ≥ 0.7; document outcomes.
+    acceptance_criteria:
+      - annotation/ iaa_analysis.ipynb and adjudication_log.md; kappa computed and reported.
+
+  - id: task7
+    name: Preprocessing and Normalization
+    prompt: >
+      1. Write scripts for text cleaning, Unicode normalization, punctuation/emoji handling, deduplication, and PII removal.
+      2. Compare tokenization strategies: whitespace, ICU word boundaries, and SentencePiece (Unigram/BPE).
+      3. Provide Khmer stopword list curation process and configurable pipeline.
+      4. Output Python preprocessing scripts with CLI interfaces and unit tests for key functions.
+    acceptance_criteria:
+      - preprocessing/ preprocess.py, tokenization.py, stopwords.txt, tests/ with basic coverage.
+
+  - id: task8
+    name: Data Splits and Augmentation
+    prompt: >
+      1. Create stratified train/val/test splits; prevent leakage by user/thread.
+      2. Optional augmentations: back-translation, synonym replacement, or noise injection; justify usage.
+      3. Save splits with manifest files and dataset card draft.
+    acceptance_criteria:
+      - data/ splits/ manifests.json and dataset_card.md with statistics and examples.
+
+  - id: task9
+    name: Baseline Models (Classical ML)
+    prompt: >
+      1. Implement Logistic Regression, Linear SVM, and Multinomial Naive Bayes with TF-IDF features.
+      2. Provide cross-validation or a validation set; grid search basic hyperparameters.
+      3. Save metrics and confusion matrices.
+    acceptance_criteria:
+      - models/ baselines.py; results saved to experiments/ with metrics.json and confusion_matrix.png.
+
+  - id: task10
+    name: Transformer Models
+    prompt: >
+      1. Fine-tune multilingual transformers (bert-base-multilingual-cased and xlm-roberta-base) for 3-class classification.
+      2. Use proper tokenization, max sequence length, class weighting if needed, and early stopping.
+      3. Provide training and evaluation scripts using PyTorch or TensorFlow with the Transformers library.
+    acceptance_criteria:
+      - models/ train_transformer.py; checkpoints saved; logs recorded.
+
+  - id: task11
+    name: Hyperparameter Optimization and Ablations
+    prompt: >
+      1. Set up configuration-driven experiments (YAML/JSON configs) with seeds.
+      2. Run HPO (e.g., grid/random or Optuna) over learning rate, batch size, max_len.
+      3. Ablate tokenization (ICU vs SentencePiece vs default), data size (25/50/75/100%), and noise handling.
+    acceptance_criteria:
+      - experiments/ configs/, hpo_results.csv, and ablation_plots/ with summary.md.
+
+  - id: task12
+    name: Evaluation and Visualization
+    prompt: >
+      1. Define metrics: Accuracy, Precision, Recall, F1-score (macro/micro), and Confusion Matrix.
+      2. Generate code to compute metrics with sklearn.metrics and visualize with Matplotlib/Seaborn.
+      3. Produce per-class and overall metrics; compare baselines vs transformers.
+    acceptance_criteria:
+      - evaluation/ evaluate.py and evaluation_report.md with figures.
+
+  - id: task13
+    name: Error and Bias Analysis
+    prompt: >
+      1. Analyze common error types: code-mixing, emojis, negation, sarcasm, OOV words.
+      2. Slice metrics by source domain (e.g., Facebook vs News comments) and by text length.
+      3. Provide qualitative examples and recommendations.
+    acceptance_criteria:
+      - evaluation/ error_analysis.ipynb with findings and recommended mitigations.
+
+  - id: task14
+    name: Reproducibility and Experiment Tracking
+    prompt: >
+      1. Provide requirements.txt (pinned), optional Dockerfile, and deterministic seeds.
+      2. Integrate experiment tracking (MLflow or equivalent); log parameters, metrics, artifacts.
+      3. Document how to fully reproduce results.
+    acceptance_criteria:
+      - requirements.txt, optional Dockerfile, and docs/reproducibility.md; MLflow logs present.
+
+  - id: task15
+    name: Web Application
+    prompt: >
+      1. Build a simple Streamlit or Flask web app for Khmer sentiment prediction.
+      2. Include input textbox for Khmer text, output sentiment (positive/negative/neutral), and confidence.
+      3. Use emojis or color visualization; load best model checkpoint; provide packaging instructions.
+    acceptance_criteria:
+      - app/ app.py runnable locally; instructions in app/ README.md.
+
+  - id: task16
+    name: Dataset Card and Model Card
+    prompt: >
+      1. Write a Dataset Card describing composition, collection process, labeling, annotation quality, and limitations.
+      2. Write a Model Card covering intended use, metrics, limitations, and ethical considerations.
+    acceptance_criteria:
+      - data/ dataset_card.md and models/ model_card.md completed.
+
+  - id: task17
+    name: Academic Documentation (Thesis Manuscript)
+    prompt: >
+      1. Generate full academic-style report structure: Abstract, Introduction, Literature Review, Methodology,
+         Experiments, Results, Discussion, Conclusion, References.
+      2. Summarize dataset, model, evaluation, and analysis; include figures/tables.
+      3. Provide Markdown or LaTeX source with references (BibTeX) and appendix (code snippets if allowed).
+    acceptance_criteria:
+      - report/ thesis.md or thesis.tex with references.bib and figures/.
+
+  - id: task18
+    name: Final Integration
+    prompt: >
+      1. Organize all outputs into folders: data/, annotation/, preprocessing/, models/, experiments/, evaluation/, app/, report/.
+      2. Generate README.md with instructions, dependencies, training/evaluation commands, and usage.
+      3. Include a final "How to Reproduce" section with seed values and expected scores.
+    acceptance_criteria:
+      - Top-level README.md complete; folder structure consistent and clean.
+
+  - id: task19
+    name: Future Research Suggestions
+    prompt: >
+      Suggest next-step extensions:
+      - Multilingual sentiment (Khmer-English) and domain adaptation
+      - Emotion detection (happy, sad, angry, etc.) and multi-label classification
+      - Real-time sentiment dashboard and streaming data handling
+      - Integration with social media analytics APIs; active learning for annotation
+      - Interpretability (e.g., attention/attribution methods) for Khmer
+      Output a short academic roadmap with concrete experiments.
+    acceptance_criteria:
+      - roadmap.md with prioritized ideas and estimated impact/cost.
