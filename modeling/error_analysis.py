@@ -30,6 +30,11 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import sys
 
+from scipy.sparse import csr_matrix  # type: ignore
+
+# Local normalization utilities
+from .text_normalization import load_norm_config, normalize_corpus
+
 try:
     import sklearn  # type: ignore
     SKLEARN_VER = getattr(sklearn, "__version__", None)
@@ -68,7 +73,7 @@ except Exception:
 
 try:
     import joblib
-    from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score
+    from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score, precision_recall_curve, average_precision_score
     import numpy as np  # type: ignore
 except Exception as e:
     raise SystemExit(
@@ -85,6 +90,72 @@ except Exception:
 LABELS = ["POS", "NEG", "NEU"]
 
 
+def _get_feature_names(vectorizer):
+    try:
+        return vectorizer.get_feature_names_out()
+    except Exception:
+        return vectorizer.get_feature_names()
+
+
+def _extract_linear_model(model):
+    """Return (base_model, note) where base_model has coef_ if available.
+    Supports raw LR, CalibratedClassifierCV(base_estimator=LR), and TemperatureScaledModel(base_estimator=LR).
+    """
+    # TemperatureScaledModel
+    base = getattr(model, "base_estimator", None)
+    if base is not None and hasattr(base, "coef_"):
+        return base, "temperature_wrapper"
+    # CalibratedClassifierCV
+    base2 = getattr(model, "base_estimator", None)
+    if base2 is not None and hasattr(base2, "coef_"):
+        return base2, "calibrated_wrapper"
+    # Raw linear model
+    if hasattr(model, "coef_"):
+        return model, "raw"
+    return None, "unsupported"
+
+
+def _topk_contributions_for_row(vec, base_model, X_row: csr_matrix, top_k: int):
+    """Compute top-K contributing features for each class for a single row.
+    Returns dict: class_label -> list[(feature, contribution)] sorted desc by contribution.
+    """
+    feature_names = _get_feature_names(vec)
+    coefs = base_model.coef_  # (n_classes, n_features)
+    classes = list(getattr(base_model, "classes_", LABELS))
+
+    # Sparse row access
+    X_row = X_row.tocsr()
+    idx = X_row.indices
+    vals = X_row.data
+
+    out: Dict[str, List[Tuple[str, float]]] = {}
+    for ci, cls in enumerate(classes):
+        weights = coefs[ci]
+        contribs: List[Tuple[str, float]] = []
+        for j, v in zip(idx, vals):
+            c = float(weights[j] * v)
+            if c != 0.0:
+                contribs.append((str(feature_names[j]), c))
+        contribs.sort(key=lambda x: -x[1])
+        out[str(cls)] = contribs[:max(1, int(top_k))]
+    return out
+
+
+def _write_misclassified_explanations(path: Path, rows: List[Dict[str, str | float]]):
+    ensure_dir(path.parent)
+    if not rows:
+        with path.open("w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["id", "text", "label", "pred_label", "top_pred_features", "top_true_features"])  # header only
+        return
+    fields = ["id", "text", "label", "pred_label", "top_pred_features", "top_true_features"]
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in fields})
+
+
 def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
@@ -96,7 +167,8 @@ def load_model(model_dir: Path):
         raise SystemExit(f"vectorizer.pkl or model.pkl not found in {model_dir}")
     vectorizer = joblib.load(vec_p)
     model = joblib.load(mdl_p)
-    return vectorizer, model
+    norm_cfg = load_norm_config(model_dir)
+    return vectorizer, model, norm_cfg
 
 
 def read_csv_rows(path: Path) -> List[Dict[str, str]]:
@@ -291,6 +363,12 @@ def main() -> None:
     ap.add_argument("--top_k", type=int, default=50, help="Top K n-grams per class to export")
     ap.add_argument("--slice_column", default=None, help="Optional column name for per-slice metrics (e.g., group or domain)")
     ap.add_argument("--reliability_bins", type=int, default=15, help="Number of bins for reliability diagram and ECE/MCE")
+    # New: PR curves and threshold optimization
+    ap.add_argument("--compute_pr_curves", action="store_true", help="Compute per-class precision-recall curves and average precision")
+    ap.add_argument("--plot_pr_curves", action="store_true", help="Plot PR curves (requires matplotlib)")
+    # New: per-sample explanations for misclassified instances (LR models)
+    ap.add_argument("--explain_misclassified", action="store_true", help="Export top contributing n-grams for misclassified samples (LR-based models)")
+    ap.add_argument("--explain_top_k", type=int, default=10, help="Top-K contributing n-grams to export per class context")
     args = ap.parse_args()
 
     model_dir = Path(args.model_dir)
@@ -298,10 +376,13 @@ def main() -> None:
     out_dir = Path(args.output_dir)
     ensure_dir(out_dir)
 
-    vec, model = load_model(model_dir)
+    vec, model, norm_cfg = load_model(model_dir)
     rows = read_csv_rows(input_csv)
 
     texts = [str(r["text"]) for r in rows]
+    # Apply normalization to match training
+    if norm_cfg:
+        texts = normalize_corpus(texts, norm_cfg)
     gold = [str(r["label"]).upper() for r in rows]
 
     X = vec.transform(texts)
@@ -377,6 +458,83 @@ def main() -> None:
     if args.slice_column is not None and len(rows) > 0 and (args.slice_column in rows[0]):
         slices = per_slice_metrics(pred_rows, args.slice_column)
 
+    # Precision-Recall curves and threshold optimization (if requested and probs available)
+    pr_curves = {}
+    pr_summary = {}
+    thresholds = {}
+    if bool(getattr(args, "compute_pr_curves", False)) and probs is not None:
+        # For each class, compute PR curve using one-vs-rest
+        classes = LABELS
+        for idx, cls in enumerate(classes):
+            y_true_bin = np.array([1 if g == cls else 0 for g in gold])
+            scores = probs[:, idx]
+            try:
+                precision, recall, thresh = precision_recall_curve(y_true_bin, scores)
+                ap_score = average_precision_score(y_true_bin, scores)
+            except Exception:
+                precision, recall, thresh = np.array([1.0]), np.array([0.0]), np.array([])
+                ap_score = 0.0
+            # Compute F1 for each threshold point and pick best
+            if thresh.size > 0:
+                f1_vals = []
+                # precision_recall_curve returns len(thresh)=len(precision)-1
+                for i in range(len(thresh)):
+                    p = precision[i]
+                    r = recall[i]
+                    f1_vals.append(0.0 if (p + r) == 0 else 2 * p * r / (p + r))
+                best_i = int(np.argmax(f1_vals)) if f1_vals else 0
+                best_thresh = float(thresh[best_i]) if thresh.size > 0 else 0.5
+                best_f1 = float(f1_vals[best_i]) if f1_vals else 0.0
+            else:
+                best_thresh = 0.5
+                best_f1 = 0.0
+            # Save per-class artifacts
+            pr_curves[cls] = {
+                "precision": [float(x) for x in precision.tolist()],
+                "recall": [float(x) for x in recall.tolist()],
+                "thresholds": [float(x) for x in thresh.tolist()],
+                "average_precision": float(ap_score),
+            }
+            thresholds[cls] = {"best_f1_threshold": best_thresh, "best_f1": best_f1}
+            pr_summary[cls] = {"AP": float(ap_score), "best_f1": best_f1}
+            # Save CSV for the curve
+            csv_path = out_dir / f"pr_curve_{cls}.csv"
+            with csv_path.open("w", encoding="utf-8", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["precision", "recall", "threshold"])
+                # Align lengths: thresholds has len=precision-1
+                for i in range(len(recall)):
+                    th = ""
+                    if i < len(thresh):
+                        th = f"{thresh[i]:.6f}"
+                    w.writerow([f"{precision[i]:.6f}", f"{recall[i]:.6f}", th])
+        # Plot PR curves if requested and available
+        if getattr(args, "plot_pr_curves", False) and MATPLOTLIB_AVAILABLE:
+            for cls in LABELS:
+                if cls not in pr_curves:
+                    continue
+                try:
+                    plt.figure(figsize=(5, 4))
+                    pr = pr_curves[cls]
+                    plt.plot(pr["recall"], pr["precision"], label=f"{cls} (AP={pr['average_precision']:.3f})")
+                    plt.xlabel("Recall")
+                    plt.ylabel("Precision")
+                    plt.title(f"PR Curve - {cls}")
+                    plt.xlim(0, 1)
+                    plt.ylim(0, 1)
+                    plt.grid(True, linestyle=":", alpha=0.5)
+                    plt.legend()
+                    plt.tight_layout()
+                    plt.savefig(out_dir / f"pr_curve_{cls}.png", dpi=150)
+                    plt.close()
+                except Exception:
+                    pass
+        # Save thresholds and summary JSON
+        with (out_dir / "thresholds.json").open("w", encoding="utf-8") as f:
+            json.dump({"per_class": thresholds}, f, ensure_ascii=False, indent=2)
+        with (out_dir / "pr_summary.json").open("w", encoding="utf-8") as f:
+            json.dump(pr_summary, f, ensure_ascii=False, indent=2)
+
     metrics = {
         "accuracy": float(acc),
         "f1_macro": float(f1m),
@@ -404,7 +562,11 @@ def main() -> None:
             "top_k": int(args.top_k),
             "slice_column": args.slice_column,
             "reliability_bins": int(args.reliability_bins),
+            "compute_pr_curves": bool(getattr(args, "compute_pr_curves", False)),
+            "plot_pr_curves": bool(getattr(args, "plot_pr_curves", False)),
         },
+        "thresholds": {"per_class": thresholds} if thresholds else {},
+        "pr_summary": pr_summary if pr_summary else {},
     }
 
     with (out_dir / "error_analysis_metrics.json").open("w", encoding="utf-8") as f:
@@ -439,6 +601,43 @@ def main() -> None:
 
     with (out_dir / "error_analysis_summary.txt").open("w", encoding="utf-8") as f:
         f.write("\n".join(summary_lines))
+
+    # Optional: Per-sample explanations for misclassified (LR-based models)
+    if getattr(args, "explain_misclassified", False) and mis_rows:
+        base_model, note = _extract_linear_model(model)
+        if base_model is None:
+            print("Explanations skipped: model does not expose linear coefficients.")
+        else:
+            try:
+                X_all = vec.transform(texts)
+                explained_rows: List[Dict[str, str | float]] = []
+                for i, mr in enumerate(mis_rows):
+                    # Find matching index in original rows by id if possible; else use order
+                    try:
+                        rid = mr.get("id", None)
+                        if rid is not None:
+                            idx = next(j for j, r in enumerate(rows) if r.get("id", None) == rid)
+                        else:
+                            idx = i
+                    except Exception:
+                        idx = i
+                    contribs = _topk_contributions_for_row(vec, base_model, X_all[idx], int(args.explain_top_k))
+                    pred_cls = str(mr.get("pred_label", ""))
+                    true_cls = str(mr.get("label", ""))
+                    top_pred = "; ".join([f"{feat}|{c:.4f}" for feat, c in contribs.get(pred_cls, [])])
+                    top_true = "; ".join([f"{feat}|{c:.4f}" for feat, c in contribs.get(true_cls, [])])
+                    explained_rows.append({
+                        "id": mr.get("id", ""),
+                        "text": mr.get("text", ""),
+                        "label": true_cls,
+                        "pred_label": pred_cls,
+                        "top_pred_features": top_pred,
+                        "top_true_features": top_true,
+                    })
+                _write_misclassified_explanations(out_dir / "misclassified_explanations.csv", explained_rows)
+                print(f"Wrote per-sample explanations: {out_dir / 'misclassified_explanations.csv'}")
+            except Exception as e:
+                print(f"Explanations failed: {e}")
 
     # Top features
     save_top_features(out_dir, vec, model, k=args.top_k)

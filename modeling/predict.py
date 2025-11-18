@@ -31,6 +31,9 @@ import json
 from pathlib import Path
 from typing import List, Dict
 
+# Local normalization utilities
+from .text_normalization import load_norm_config, normalize_corpus, normalize_text
+
 try:
     import pandas as pd  # type: ignore
 except Exception:
@@ -55,10 +58,12 @@ def load_model(model_dir: Path):
         raise SystemExit(f"vectorizer.pkl or model.pkl not found in {model_dir}")
     vectorizer = joblib.load(vec_p)
     model = joblib.load(mdl_p)
-    return vectorizer, model
+    norm_cfg = load_norm_config(model_dir)
+    return vectorizer, model, norm_cfg
 
 
 def predict_text(vectorizer, model, text: str) -> Dict[str, float]:
+    # Load-time pass of normalization is handled by caller via norm_cfg; function stays simple
     X = vectorizer.transform([text])
     probs = None
     if hasattr(model, "predict_proba"):
@@ -146,15 +151,21 @@ def main() -> None:
     args = ap.parse_args()
 
     model_dir = Path(args.model_dir)
-    vectorizer, model = load_model(model_dir)
+    vectorizer, model, norm_cfg = load_model(model_dir)
 
     if args.text:
-        res = predict_text(vectorizer, model, args.text)
+        t = normalize_text(args.text, norm_cfg)
+        res = predict_text(vectorizer, model, t)
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return
 
     if args.input_csv:
         rows = read_csv_rows(Path(args.input_csv))
+        # Normalize texts if config exists
+        if norm_cfg:
+            for r in rows:
+                if "text" in r and r["text"] is not None:
+                    r["text"] = normalize_text(str(r["text"]), norm_cfg)
         pred_rows = batch_predict(vectorizer, model, rows)
         metrics = maybe_evaluate(pred_rows)
         if args.output_csv:

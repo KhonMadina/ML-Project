@@ -25,9 +25,27 @@ seaborn>=0.13; python_version >= "3.9"
 # Optional: resampling used by training (--resample)
 imbalanced-learn>=0.11
 
+# Transformer stack for advanced baselines (Python >= 3.9 assumed for latest wheels)
+# For Python < 3.9, you may need to pin compatible versions or use the Dockerfile.
+transformers>=4.44; python_version >= "3.9"
+datasets>=2.20; python_version >= "3.9"
+accelerate>=0.33; python_version >= "3.9"
+evaluate>=0.4; python_version >= "3.9"
+# Tokenizers for custom tokenizer training
+tokenizers>=0.19
+# Torch: prefer official wheels; leave unpinned to let pip resolve GPU/CPU variant
+# Users on Windows/CPU: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Users on CUDA: follow https://pytorch.org/get-started/locally/
+torch; python_version >= "3.9"
+
 # Notebook/Dev (optional)
 jupyterlab>=4
 ipykernel>=6
+
+# Reproducibility & tracking (optional but recommended)
+pyyaml>=6.0
+mlflow>=2.16
+wandb>=0.17
 
 # Annotation tool (optional runtime outside this repo)
 # label-studio>=1.10

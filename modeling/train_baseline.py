@@ -41,6 +41,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
+# Experiment utilities for reproducibility and tracking
+from .utils.experiment import Config as ExpConfig, prepare_experiment
+
+# Local normalization utilities
+from .text_normalization import (
+    build_norm_config_from_args,
+    save_norm_config,
+    normalize_corpus,
+)
+from .calibration_utils import TemperatureScaledModel
+
 try:
     import pandas as pd  # type: ignore
 except Exception:
@@ -179,6 +190,84 @@ def group_aware_split(rows: List[Row], train_ratio: float, val_ratio: float, tes
     return train_rows, val_rows, test_rows
 
 
+def group_stratified_split(rows: List[Row], train_ratio: float, val_ratio: float, test_ratio: float, seed: int = 42) -> Tuple[List[Row], List[Row], List[Row]]:
+    """Approximate group-aware stratified split.
+    Assign entire groups to splits to avoid leakage while approximating label distribution targets.
+    Heuristic: greedy assignment minimizing L1 distance to target label counts.
+    """
+    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
+        raise ValueError("train_ratio + val_ratio + test_ratio must equal 1.0")
+
+    # Collect groups and per-group label counts
+    groups: Dict[str, List[Row]] = {}
+    for i, r in enumerate(rows):
+        g = r.group if r.group is not None else f"__nogroup_{i}"
+        groups.setdefault(g, []).append(r)
+
+    total_label_counts: Dict[str, int] = {}
+    for r in rows:
+        total_label_counts[r.label] = total_label_counts.get(r.label, 0) + 1
+
+    def target_counts(ratio: float) -> Dict[str, float]:
+        return {lbl: total_label_counts.get(lbl, 0) * ratio for lbl in total_label_counts}
+
+    targets = {
+        "train": target_counts(train_ratio),
+        "val": target_counts(val_ratio),
+        "test": target_counts(test_ratio),
+    }
+
+    # Current counts per split
+    cur = {"train": {lbl: 0 for lbl in total_label_counts},
+           "val": {lbl: 0 for lbl in total_label_counts},
+           "test": {lbl: 0 for lbl in total_label_counts}}
+
+    # Deterministic order: by group size desc, then name asc, with seeded shuffle for ties
+    rng = random.Random(seed)
+    items = list(groups.items())
+    items.sort(key=lambda kv: (-len(kv[1]), kv[0]))
+
+    assign: Dict[str, str] = {}
+
+    def label_counts_for_group(grows: List[Row]) -> Dict[str, int]:
+        d: Dict[str, int] = {}
+        for r in grows:
+            d[r.label] = d.get(r.label, 0) + 1
+        return d
+
+    for g, grows in items:
+        gc = label_counts_for_group(grows)
+        # Evaluate cost for assigning to each split
+        best_split = None
+        best_cost = None
+        for sp in ["train", "val", "test"]:
+            cost = 0.0
+            for lbl, tgt in targets[sp].items():
+                after = cur[sp].get(lbl, 0) + gc.get(lbl, 0)
+                cost += abs(after - tgt)
+            if best_cost is None or cost < best_cost:
+                best_cost = cost
+                best_split = sp
+        assign[g] = best_split or "train"
+        # Update counts
+        for lbl, c in gc.items():
+            cur[assign[g]][lbl] = cur[assign[g]].get(lbl, 0) + c
+
+    train_rows = []
+    val_rows = []
+    test_rows = []
+    for g, grows in groups.items():
+        sp = assign[g]
+        if sp == "train":
+            train_rows.extend(grows)
+        elif sp == "val":
+            val_rows.extend(grows)
+        else:
+            test_rows.extend(grows)
+
+    return train_rows, val_rows, test_rows
+
+
 def to_xy(rows: List[Row]) -> Tuple[List[str], List[str]]:
     X = [r.text for r in rows]
     y = [r.label for r in rows]
@@ -260,6 +349,7 @@ def train_and_eval(
     class_weight_param: Optional[Dict[str, float] | str],
     max_iter: int,
     calibrate: str,
+    calibrate_cv_folds: int,
     seed: int,
     args_dict: Dict[str, object],
     resample: str,
@@ -270,6 +360,13 @@ def train_and_eval(
     X_train, y_train = to_xy(train_rows)
     X_val, y_val = to_xy(val_rows)
     X_test, y_test = to_xy(test_rows)
+
+    # Apply normalization if configured (config is passed via args_dict under 'normalization_config')
+    norm_config = args_dict.get("normalization_config") if isinstance(args_dict, dict) else None
+    if norm_config:
+        X_train = normalize_corpus(X_train, norm_config)  # type: ignore
+        X_val = normalize_corpus(X_val, norm_config)      # type: ignore
+        X_test = normalize_corpus(X_test, norm_config)    # type: ignore
 
     vectorizer = TfidfVectorizer(
         analyzer="char",
@@ -327,14 +424,32 @@ def train_and_eval(
 
     model_for_eval = clf
     calibration_info: Dict[str, object] = {"applied": False}
-    if calibrate != "none" and CalibratedClassifierCV is not None and hasattr(clf, "predict_proba"):
-        method = "sigmoid" if calibrate == "platt" else "isotonic"
-        calibrator = CalibratedClassifierCV(base_estimator=clf, method=method, cv="prefit")
-        calibrator.fit(Xv, y_val)
-        model_for_eval = calibrator
-        calibration_info = {"applied": True, "method": calibrate}
-    elif calibrate != "none" and CalibratedClassifierCV is None:
-        print("Warning: sklearn.calibration.CalibratedClassifierCV not available; skipping calibration.")
+    if calibrate == "temperature":
+        try:
+            ts = TemperatureScaledModel(clf)
+            ts.fit(Xv, y_val)
+            model_for_eval = ts
+            calibration_info = {"applied": True, "method": "temperature", "temperature": float(ts.temperature)}
+        except Exception as e:
+            print(f"Warning: temperature scaling failed: {e}")
+    elif calibrate in ("platt", "isotonic"):
+        if CalibratedClassifierCV is None:
+            print("Warning: sklearn.calibration.CalibratedClassifierCV not available; skipping calibration.")
+        else:
+            method = "sigmoid" if calibrate == "platt" else "isotonic"
+            try:
+                if int(calibrate_cv_folds) and int(calibrate_cv_folds) > 1:
+                    calibrator = CalibratedClassifierCV(base_estimator=clf, method=method, cv=int(calibrate_cv_folds))
+                    calibrator.fit(Xtr, y_train)
+                    model_for_eval = calibrator
+                    calibration_info = {"applied": True, "method": calibrate, "cv_folds": int(calibrate_cv_folds)}
+                else:
+                    calibrator = CalibratedClassifierCV(base_estimator=clf, method=method, cv="prefit")
+                    calibrator.fit(Xv, y_val)
+                    model_for_eval = calibrator
+                    calibration_info = {"applied": True, "method": calibrate, "cv_folds": 0}
+            except Exception as e:
+                print(f"Warning: calibration failed: {e}")
 
     def eval_split(X, y, split_name: str) -> Dict[str, object]:
         yp = model_for_eval.predict(X)
@@ -353,6 +468,7 @@ def train_and_eval(
             "class_weight": class_weight_param,
             "max_iter": max_iter,
             "calibrate": calibrate,
+            "calibrate_cv_folds": int(calibrate_cv_folds),
         },
         "sizes": {
             "train": len(train_rows),
@@ -375,6 +491,31 @@ def train_and_eval(
     with (output_dir / "metrics.json").open("w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
 
+    # Tracking: log metrics and artifacts if enabled via prepare_experiment in main()
+    if args_dict.get("_tracker") is not None:
+        tr = args_dict.get("_tracker")
+        try:
+            # flatten a few metrics for logging
+            tr.log_metrics({
+                "val_accuracy": float(metrics["val"]["accuracy"]),
+                "val_f1_macro": float(metrics["val"]["f1_macro"]),
+                "test_accuracy": float(metrics["test"]["accuracy"]),
+                "test_f1_macro": float(metrics["test"]["f1_macro"]),
+            })
+            tr.log_artifact(output_dir / "metrics.json")
+            tr.log_artifact(output_dir / "confusion_matrix.csv")
+            tr.log_artifact(output_dir / "vectorizer.pkl", artifact_path="artifacts")
+            tr.log_artifact(output_dir / "model.pkl", artifact_path="artifacts")
+        except Exception:
+            pass
+
+    # Persist normalization config so inference can reproduce preprocessing
+    if isinstance(args_dict, dict) and args_dict.get("normalization_config"):
+        try:
+            save_norm_config(output_dir, args_dict["normalization_config"])  # type: ignore
+        except Exception as e:
+            print(f"Warning: failed to save normalization config: {e}")
+
     # Save test confusion matrix for convenience
     with (output_dir / "confusion_matrix.csv").open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
@@ -389,6 +530,15 @@ def train_and_eval(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Train a char n-gram TF-IDF + Logistic Regression baseline for Khmer sentiment")
+    # Reproducibility & tracking config
+    ap.add_argument("--config", help="Optional YAML config for experiment settings")
+    ap.add_argument("--tracking", choices=["none", "mlflow", "wandb"], default="mlflow", help="Experiment tracking backend")
+    ap.add_argument("--experiment_name", default="baseline_chargram", help="Experiment/run name")
+    ap.add_argument("--mlflow_tracking_uri", default=None, help="MLflow tracking URI (default: local ./mlruns)")
+    ap.add_argument("--mlflow_experiment", default=None, help="MLflow experiment name")
+    ap.add_argument("--wandb_project", default=None)
+    ap.add_argument("--wandb_entity", default=None)
+    ap.add_argument("--wandb_mode", default=None)
     ap.add_argument("--input", required=True, help="Path to finalized dataset CSV (or any of the split CSVs)")
     ap.add_argument("--use_splits", action="store_true", help="Use final_train/val/test.csv sitting next to --input; otherwise perform a random stratified split")
     ap.add_argument("--output_dir", required=True, help="Directory to save model artifacts")
@@ -403,18 +553,36 @@ def main() -> None:
     ap.add_argument("--class_weight_json", help="Optional path to JSON mapping of class label -> weight (overrides --class_weight)")
     ap.add_argument("--max_iter", type=int, default=200)
     ap.add_argument("--group_column", default=None, help="Optional column name in CSV to perform group-aware splits (prevents leakage)")
-    ap.add_argument("--calibrate", choices=["none", "platt", "isotonic"], default="none", help="Calibrate probabilities using validation set")
+    ap.add_argument("--group_stratified", action="store_true", help="Use group-aware stratified split (assign groups to splits while approximating label distribution)")
+    ap.add_argument("--calibrate", choices=["none", "platt", "isotonic", "temperature"], default="none", help="Calibrate probabilities (platt/isotonic using val or CV; temperature uses val)")
+    ap.add_argument("--calibrate_cv_folds", type=int, default=0, help="For platt/isotonic: if >1, perform cross-validated calibration on training set with given folds; if 0, calibrate on validation set (prefit)")
     ap.add_argument("--resample", choices=["none", "undersample", "oversample"], default="none", help="Optionally apply class resampling on the training set")
     ap.add_argument("--resample_ratio", type=float, default=1.0, help="Resampling ratio; for oversample targets ~max_count*ratio; for undersample targets ~min_count*ratio")
+
+    # Normalization flags
+    ap.add_argument("--normalize_all", action="store_true", help="Enable a default Khmer/social text normalization pipeline")
+    ap.add_argument("--norm_nfc", action="store_true", help="Apply Unicode NFC normalization")
+    ap.add_argument("--norm_whitespace", action="store_true", help="Collapse whitespace and trim")
+    ap.add_argument("--norm_punct", action="store_true", help="Normalize punctuation variants and compress repeats")
+    ap.add_argument("--norm_elongation", action="store_true", help="Compress elongated character runs (>2 -> 2)")
+    ap.add_argument("--norm_emoji", choices=["keep", "remove", "map"], default=None, help="Emoji handling mode: keep/remove/map-to-token")
+
     args = ap.parse_args()
 
-    # Set seeds for reproducibility
-    random.seed(args.seed)
-    if np is not None:
-        try:
-            np.random.seed(args.seed)
-        except Exception:
-            pass
+    # Prepare experiment (seed + tracking)
+    exp_cfg = ExpConfig.from_yaml(args.config)
+    exp_cfg.merge_overrides({
+        "experiment_name": args.experiment_name,
+        "seed": args.seed,
+        "tracking": args.tracking,
+        "output_dir": args.output_dir,
+        "mlflow_tracking_uri": args.mlflow_tracking_uri,
+        "mlflow_experiment": args.mlflow_experiment,
+        "wandb_project": args.wandb_project,
+        "wandb_entity": args.wandb_entity,
+        "wandb_mode": args.wandb_mode,
+    })
+    tracker = prepare_experiment(exp_cfg)
 
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
@@ -434,9 +602,16 @@ def main() -> None:
     else:
         rows = read_csv_rows(input_path, group_col=args.group_column)
         if args.group_column:
-            train_rows, val_rows, test_rows = group_aware_split(rows, args.train_ratio, args.val_ratio, args.test_ratio, seed=args.seed)
+            if args.group_stratified:
+                train_rows, val_rows, test_rows = group_stratified_split(rows, args.train_ratio, args.val_ratio, args.test_ratio, seed=args.seed)
+            else:
+                train_rows, val_rows, test_rows = group_aware_split(rows, args.train_ratio, args.val_ratio, args.test_ratio, seed=args.seed)
         else:
             train_rows, val_rows, test_rows = stratified_split(rows, args.train_ratio, args.val_ratio, args.test_ratio, seed=args.seed)
+
+    # Build normalization config from args (stored in metrics and used during training)
+    from .text_normalization import build_norm_config_from_args as _build_norm
+    norm_config = _build_norm(args)
 
     # Log args as dict for metrics
     args_dict = {
@@ -455,9 +630,26 @@ def main() -> None:
         "max_iter": int(args.max_iter),
         "group_column": args.group_column,
         "calibrate": args.calibrate,
+        "calibrate_cv_folds": int(args.calibrate_cv_folds),
+        "group_stratified": bool(args.group_stratified),
         "resample": args.resample,
         "resample_ratio": float(args.resample_ratio),
+        # Normalization: store config and the raw flags for transparency
+        "normalize_all": bool(args.normalize_all),
+        "norm_nfc": bool(args.norm_nfc),
+        "norm_whitespace": bool(args.norm_whitespace),
+        "norm_punct": bool(args.norm_punct),
+        "norm_elongation": bool(args.norm_elongation),
+        "norm_emoji": args.norm_emoji if args.norm_emoji is not None else None,
+        "normalization_config": norm_config,
+        "_tracker": tracker,
     }
+
+    # Log parameters to tracker
+    try:
+        tracker.log_params(args_dict)
+    except Exception:
+        pass
 
     train_and_eval(
         train_rows,
@@ -470,6 +662,7 @@ def main() -> None:
         class_weight_param,
         args.max_iter,
         args.calibrate,
+        int(args.calibrate_cv_folds),
         args.seed,
         args_dict,
         args.resample,
