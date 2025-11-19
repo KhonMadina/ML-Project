@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 DATA_DIR="annotation/sample_data"
-MODEL_DIR="models/baseline_chargram"
+MODEL_DIR="models"
 REPORT_DIR="reports/baseline_chargram"
 TOKENIZER_DIR="models/khmer_tokenizer_demo"
 TRANSFORMER_DIR="models/transformer_khmer_demo"
@@ -89,7 +89,7 @@ python -m modeling.train_transformer \
 
 echo
 echo "[6/6] Starting Khmer Sentiment Demo API..."
-echo "       Model directory: ${MODEL_DIR}"
+echo "       Base models directory: ${MODEL_DIR} (expects ${MODEL_DIR}/baseline_chargram and ${MODEL_DIR}/transformer_khmer_demo)"
 echo "       tau: ${TAU}"
 echo "       URL: http://${HOST}:${PORT}/"
 

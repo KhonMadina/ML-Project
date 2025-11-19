@@ -167,8 +167,17 @@
         <label for="text">Input Khmer text</label>
         <textarea id="text" placeholder="ឧទាហរណ៍៖ អរគុណច្រើន សេវាកម្មល្អបំផុត 🙄"></textarea>
         <div class="controls">
+          <label class="small" for="tau">tau:</label>
+          <input type="number" id="tau" min="0" max="1" step="0.01" value="0.5" style="width:80px;padding:0.3rem;border-radius:6px;border:1px solid #d1d5db;"/>
+          <select id="modelType" style="padding:0.3rem;border-radius:6px;border:1px solid #d1d5db;">
+            <option value="baseline">Baseline (TF–IDF + LR)</option>
+            <option value="transformer">Transformer</option>
+          </select>
+          <label class="small">
+            <input type="checkbox" id="normalize" checked />
+            Normalize text
+          </label>
           <button id="btnPredict">Predict sentiment</button>
-          <span class="small" id="modelInfo">Model: (loading...)</span>
         </div>
         <div class="error" id="error"></div>
       </div>
@@ -183,6 +192,8 @@
           <div id="confSet" style="margin-top:0.35rem;"></div>
           <div class="meta-row">
             <div id="tauInfo"></div>
+            <div id="uncertaintyInfo"></div>
+            <div id="modelTypeInfo"></div>
           </div>
         </div>
         <div>
@@ -194,14 +205,28 @@
       <h3 style="font-size:0.95rem;margin-bottom:0.35rem;">Internal processing</h3>
       <p class="small" style="margin-bottom:0.25rem;">Normalized text used by the model:</p>
       <pre id="normalizedText" style="background:#f9fafb;border-radius:8px;padding:0.6rem;font-size:0.9rem;white-space:pre-wrap;"></pre>
+      <h3 style="font-size:0.95rem;margin-bottom:0.35rem;">Top features (baseline)</h3>
+      <ul id="importanceList" class="small"></ul>
+    </section>
+
+    <section class="card">
+      <h2 style="margin-top:0;font-size:1.0rem;">Batch prediction</h2>
+      <p class="small">Paste one text per line and click Predict Batch. Output will download as CSV.</p>
+      <textarea id="batchInput" placeholder="Line 1 text\nLine 2 text"></textarea>
+      <div class="controls">
+        <button id="btnPredictBatch">Predict batch</button>
+      </div>
+      <div class="error" id="batchError"></div>
     </section>
 
     <section class="card">
       <h2 style="margin-top:0;font-size:1.0rem;">API reference</h2>
       <p class="small">The UI calls the FastAPI backend:</p>
       <ul class="small">
-        <li><code>GET /meta</code> &rarr; model information and labels.</li>
-        <li><code>POST /predict</code> with JSON <code>{"text": "..."}</code> &rarr; prediction, probabilities, conformal set.</li>
+        <li><code>GET /health</code> &rarr; status and model info.</li>
+        <li><code>GET /meta</code> &rarr; model information and labels, and supported model types.</li>
+        <li><code>POST /predict</code> with JSON <code>{"text": "...", "model_type": "baseline|transformer", "tau": 0.5, "normalize": true}</code> &rarr; prediction, probabilities, conformal set, uncertainty, importance.</li>
+        <li><code>POST /predict/batch</code> with JSON <code>[{"text": "...", "model_type": "...", "tau": 0.5, "normalize": true}]</code> &rarr; list of predictions.</li>
         <li>Interactive docs: <code>/docs</code></li>
       </ul>
     </section>
@@ -218,6 +243,16 @@
     const normEl = document.getElementById('normalizedText');
     const tauInfoEl = document.getElementById('tauInfo');
     const modelInfoEl = document.getElementById('modelInfo');
+    const tauEl = document.getElementById('tau');
+    const modelTypeEl = document.getElementById('modelType');
+    const normalizeEl = document.getElementById('normalize');
+    const uncertaintyEl = document.getElementById('uncertaintyInfo');
+    const modelTypeInfoEl = document.getElementById('modelTypeInfo');
+    const importanceEl = document.getElementById('importanceList');
+
+    const btnBatch = document.getElementById('btnPredictBatch');
+    const batchInput = document.getElementById('batchInput');
+    const batchError = document.getElementById('batchError');
 
     async function loadMeta() {
       try {
@@ -225,7 +260,19 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const labels = (data.labels || []).join(', ');
-        modelInfoEl.textContent = `Model: ${data.model_dir || 'unknown'} | Labels: [${labels}] | tau=${data.tau}`;
+        if (Array.isArray(data.supported_model_types)) {
+          if (!data.supported_model_types.includes('transformer')) {
+            [...modelTypeEl.options].forEach(opt => {
+              if (opt.value === 'transformer') opt.disabled = true;
+            });
+          }
+          if (data.default_model_type) {
+            modelTypeEl.value = data.default_model_type;
+          }
+        }
+        if (typeof data.default_normalize === 'boolean') {
+          normalizeEl.checked = data.default_normalize;
+        }
       } catch (e) {
         modelInfoEl.textContent = 'Model: could not load metadata. Make sure the API is running.';
       }
@@ -295,33 +342,54 @@
         const res = await fetch('/predict', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
+          body: JSON.stringify({
+            text,
+            tau: parseFloat(tauEl.value),
+            model_type: modelTypeEl.value,
+            normalize: normalizeEl.checked
+          })
         });
         if (!res.ok) {
           throw new Error('Prediction failed with status ' + res.status);
         }
         const data = await res.json();
 
-        // Predicted label
         predLabelEl.innerHTML = '';
         predLabelEl.appendChild(document.createTextNode('Predicted label: '));
         predLabelEl.appendChild(sentimentBadge(data.pred_label));
 
-        // Conformal set
         confSetEl.innerHTML = '';
         const setSpan = document.createElement('span');
         setSpan.classList.add('badge', 'badge-set');
         setSpan.textContent = 'Prediction set: [' + (data.conformal_set || []).join(', ') + ']';
         confSetEl.appendChild(setSpan);
 
-        // Tau info
         tauInfoEl.textContent = 'Threshold tau = ' + (data.tau != null ? data.tau.toFixed(3) : '?');
 
-        // Probabilities
+        if (typeof data.max_proba === 'number' || typeof data.entropy === 'number') {
+          const mp = data.max_proba != null ? (data.max_proba * 100).toFixed(1) + '%' : '?';
+          const ent = data.entropy != null ? data.entropy.toFixed(3) : '?';
+          const setSize = data.pred_set_size != null ? data.pred_set_size : (data.conformal_set || []).length;
+          uncertaintyEl.textContent = `Max p = ${mp}, entropy = ${ent}, set size = ${setSize}`;
+        } else {
+          uncertaintyEl.textContent = '';
+        }
+
+        modelTypeInfoEl.textContent = 'Model: ' + (data.model_type || 'baseline');
+
         renderProbabilities(data.probabilities || {});
 
-        // Normalized text
         normEl.textContent = data.normalized_text || '';
+
+        importanceEl.innerHTML = '';
+        if (Array.isArray(data.importance) && data.importance.length) {
+          data.importance.forEach(item => {
+            const li = document.createElement('li');
+            const w = typeof item.weight === 'number' ? item.weight.toFixed(4) : item.weight;
+            li.textContent = `${item.feature}: ${w}`;
+            importanceEl.appendChild(li);
+          });
+        }
 
         resultCard.style.display = 'block';
       } catch (e) {
@@ -333,12 +401,71 @@
       }
     }
 
+    async function predictBatch() {
+      batchError.textContent = '';
+      const lines = (batchInput.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      if (!lines.length) {
+        batchError.textContent = 'Please paste at least one line.';
+        return;
+      }
+      btnBatch.disabled = true;
+      btnBatch.textContent = 'Predicting...';
+      try {
+        const payload = lines.map(t => ({
+          text: t,
+          tau: parseFloat(tauEl.value),
+          model_type: modelTypeEl.value,
+          normalize: normalizeEl.checked
+        }));
+        const res = await fetch('/predict/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Batch prediction failed with status ' + res.status);
+        const data = await res.json();
+
+        const header = ['text','normalized_text','pred_label','proba_POS','proba_NEG','proba_NEU','conformal_set','tau'];
+        const rows = [header.join(',')];
+        data.forEach(r => {
+          const probs = r.probabilities || {};
+          const row = [
+            JSON.stringify(r.text ?? ''),
+            JSON.stringify(r.normalized_text ?? ''),
+            JSON.stringify(r.pred_label ?? ''),
+            (probs.proba_POS ?? ''),
+            (probs.proba_NEG ?? ''),
+            (probs.proba_NEU ?? ''),
+            JSON.stringify((r.conformal_set || []).join('|')),
+            (r.tau ?? '')
+          ];
+          rows.push(row.join(','));
+        });
+        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'predictions.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error(e);
+        batchError.textContent = e.message || 'Batch prediction failed.';
+      } finally {
+        btnBatch.disabled = false;
+        btnBatch.textContent = 'Predict batch';
+      }
+    }
+
     btn.addEventListener('click', predict);
     textEl.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         predict();
       }
     });
+    btnBatch.addEventListener('click', predictBatch);
 
     loadMeta();
   </script>

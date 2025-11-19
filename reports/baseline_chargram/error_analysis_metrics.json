@@ -183,7 +183,7 @@
     "matplotlib": "3.10.6"
   },
   "args": {
-    "model_dir": "models\\baseline_chargram",
+    "model_dir": "models",
     "input_csv": "annotation\\sample_data\\final_test.csv",
     "output_dir": "reports\\baseline_chargram",
     "top_k": 50,
