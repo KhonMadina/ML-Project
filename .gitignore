@@ -1,0 +1,77 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+.env/
+.env.*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and local run artifacts
+*.log
+logs/
+wandb/
+mlruns/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Data & intermediate CSVs (keep sample_data source CSVs under version control if desired)
+annotation/sample_data/final_train.csv
+annotation/sample_data/final_val.csv
+annotation/sample_data/final_test.csv
+annotation/sample_data/pred_*.csv
+
+# Model artifacts
+models/
+!models/.gitkeep
+
+# Reports and generated analysis
+reports/
+!reports/.gitkeep
+
+# Tokenizers and transformers output dirs
+**/tokenizers/
+**/tokenizer_*/
+**/transformer_*/
+
+# Cache from tools and experiments
+.cache/
+.tmp/
+.tmp*/
+
+# Node / frontend (if any future UI build system is added)
+node_modules/
+*.log
+
+# Docker / container local
+*.pid
+
+# VSCode Python debugging
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+.coverage.*
+
+# Local config overrides
+config.local.*

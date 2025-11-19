@@ -9,17 +9,19 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 DATA_DIR="annotation/sample_data"
 MODEL_DIR="models/baseline_chargram"
 REPORT_DIR="reports/baseline_chargram"
+TOKENIZER_DIR="models/khmer_tokenizer_demo"
+TRANSFORMER_DIR="models/transformer_khmer_demo"
 TAU="0.5"
 HOST="127.0.0.1"
 PORT="8000"
 
-echo "[1/5] Ensuring Python dependencies are installed..."
+echo "[1/6] Ensuring Python dependencies are installed..."
 python -m pip install --upgrade pip setuptools wheel || echo "Warning: pip upgrade may have failed; continuing..."
 pip install -r requirements.txt
 pip install fastapi uvicorn[standard]
 
 echo
-echo "[2/5] Preparing dataset and splits (align with run_demo.sh)..."
+echo "[2/6] Preparing dataset and splits (align with run_demo.sh)..."
 # If a prebuilt final_dataset.csv exists, just generate splits; else run the adjudication combine path
 if [[ -f "${DATA_DIR}/final_dataset.csv" ]]; then
   echo "Found prebuilt final_dataset.csv; generating stratified splits via split subcommand..."
@@ -47,7 +49,7 @@ fi
 [[ -f "${DATA_DIR}/final_test.csv" ]] || { echo "ERROR: Missing ${DATA_DIR}/final_test.csv"; exit 1; }
 
 echo
-echo "[3/5] Training baseline model (char n-gram TF-IDF + Logistic Regression)..."
+echo "[3/6] Training baseline model (char n-gram TF-IDF + Logistic Regression)..."
 python -m modeling.train_baseline \
   --input "${DATA_DIR}/final_dataset.csv" \
   --use_splits \
@@ -67,7 +69,26 @@ if [[ -f "${DATA_DIR}/final_test.csv" ]]; then
 fi
 
 echo
-echo "[4/5] Starting Khmer Sentiment Demo API..."
+echo "[4/6] Training Khmer tokenizer on training split..."
+python -m tools.train_tokenizer \
+  --input_csv "${DATA_DIR}/final_train.csv" \
+  --text_column text \
+  --output_dir "${TOKENIZER_DIR}" || echo "Warning: tokenizer training failed; continuing to API."
+
+echo "[5/6] Training transformer model (Khmer sentiment)..."
+python -m modeling.train_transformer \
+  --input "${DATA_DIR}/final_dataset.csv" \
+  --use_splits \
+  --output_dir "${TRANSFORMER_DIR}" \
+  --model_name "xlm-roberta-base" \
+  --epochs 1 \
+  --batch_size 4 \
+  --grad_accum 1 \
+  --lr 5e-5 \
+  --tracking none || echo "Warning: transformer training failed; continuing to API."
+
+echo
+echo "[6/6] Starting Khmer Sentiment Demo API..."
 echo "       Model directory: ${MODEL_DIR}"
 echo "       tau: ${TAU}"
 echo "       URL: http://${HOST}:${PORT}/"
@@ -83,7 +104,7 @@ API_PID=$!
 # Give the server a few seconds to start
 sleep 4
 
-echo "[5/5] Opening browser to the demo UI (if xdg-open/start available)..."
+echo "[6/6] Opening browser to the demo UI (if xdg-open/start available)..."
 if command -v xdg-open >/dev/null 2>&1; then
   xdg-open "http://${HOST}:${PORT}/" || true
 elif command -v start >/dev/null 2>&1; then

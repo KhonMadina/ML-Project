@@ -41,6 +41,11 @@ from typing import Dict, List, Optional, Tuple
 import os
 import sys
 
+# Hard-disable Weights & Biases for non-interactive demo runs so transformers Trainer
+# does not try to initialize wandb or prompt for credentials.
+os.environ.setdefault("WANDB_DISABLED", "true")
+os.environ.setdefault("WANDB_MODE", "disabled")
+
 # Experiment utilities for reproducibility and tracking
 from .utils.experiment import Config as ExpConfig, prepare_experiment, set_global_seed
 
@@ -195,7 +200,7 @@ def main() -> None:
 
     # Reproducibility & tracking config
     ap.add_argument("--config", help="Optional YAML config for experiment settings")
-    ap.add_argument("--tracking", choices=["none", "mlflow", "wandb"], default="mlflow", help="Experiment tracking backend")
+    ap.add_argument("--tracking", choices=["none", "mlflow", "wandb"], default="none", help="Experiment tracking backend")
     ap.add_argument("--experiment_name", default="transformer_baseline", help="Experiment/run name")
     ap.add_argument("--mlflow_tracking_uri", default=None, help="MLflow tracking URI (default: local ./mlruns)")
     ap.add_argument("--mlflow_experiment", default=None, help="MLflow experiment name")
@@ -286,6 +291,9 @@ def main() -> None:
 
     collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
+    # Use a minimal set of TrainingArguments fields compatible with a wide range of transformers versions.
+    # More advanced options like evaluation_strategy/save_strategy/load_best_model_at_end can be added
+    # if your installed transformers version supports them.
     training_args = TrainingArguments(
         output_dir=str(out_dir),
         num_train_epochs=args.epochs,
@@ -294,12 +302,6 @@ def main() -> None:
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         weight_decay=args.weight_decay,
-        warmup_ratio=args.warmup_ratio,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
-        metric_for_best_model="f1_macro",
-        greater_is_better=True,
         fp16=bool(args.fp16),
         seed=args.seed,
         logging_steps=50,
