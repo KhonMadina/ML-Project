@@ -1,40 +1,130 @@
 # Research Guide: Khmer Sentiment Analysis
 
-This guide summarizes recommended research protocols and how to reproduce experiments in this repository. It reflects Step 1 (Reproducibility & Tracking), Step 2 (Khmer normalization & tokenizer), and the finalized experimental grids and documentation alignment for thesis work.
+This guide summarizes the research protocol for this repository and how to reproduce the experiments. It is aligned with the implemented code, YAML grids under `experiments/`, and scripts in `modeling/` and `tools/`.
 
-## 1. Reproducibility and Tracking
+The goals are to:
+- Make the main research questions and hypotheses explicit.
+- Tie each research axis to concrete scripts/configs.
+- Provide copy-pasteable commands to rerun experiments.
+- Support direct mapping between thesis sections and repository artifacts.
 
-### 1.1 Deterministic Setup
-- All training scripts accept `--seed` (default 42). The experiment utilities set global seeds for Python, NumPy, and PyTorch (if available) and toggle deterministic cuDNN flags.
-- A snapshot of each run’s configuration and environment is written to `<output_dir>/experiment_config.json`.
+---
 
-### 1.2 Experiment Tracking
-- MLflow is supported by default, and Weights & Biases (W&B) optionally.
-- New flags on training scripts (baseline and transformer):
-  - `--tracking {none,mlflow,wandb}`: default `mlflow`.
-  - `--experiment_name`: user-defined run name.
-  - `--mlflow_tracking_uri`: optional; if not set, MLflow defaults to local `./mlruns`.
-  - `--mlflow_experiment`: optional experiment grouping in MLflow.
-  - `--wandb_project`, `--wandb_entity`, `--wandb_mode` for W&B.
-  - `--config`: optional YAML config with experiment parameters (merged with CLI overrides).
+## 1. Research Questions and Hypotheses
 
-Artifacts automatically logged include `metrics.json`, confusion matrices (baseline), and model artifacts (vectorizers/models/tokenizers).
+Each research question (RQ) is framed so that it can be tested using the existing experiment grids and scripts.
 
-### 1.3 Example: Baseline with MLflow
+### RQ1: Impact of Khmer-Specific Normalization
+
+- **Question:** How do Khmer-specific text normalization operations affect sentiment classification performance on Khmer social text?
+- **Hypotheses:**
+  - **H1a:** Using the full preset (`--normalize_all`) improves macro-F1 and accuracy relative to no normalization.
+  - **H1b:** Mapping Khmer digits to ASCII (`--norm_khmer_digits map`) improves performance compared to keeping digits in Khmer (`keep`).
+  - **H1c:** Enabling Khmer punctuation normalization (`--norm_khmer_punct true`) reduces errors related to sentence/clause segmentation.
+- **Code & Config:**
+  - Implementation: `modeling/text_normalization.py`.
+  - Baseline training: `modeling/train_baseline.py`.
+  - Grid: `experiments/normalization_ablation_baseline.yml`.
+- **Protocol:** Fix dataset, model, and splits; vary normalization flags via the YAML grid and compare metrics.
+
+### RQ2: Emojis and Latin Code-Switching
+
+- **Question:** What is the effect of different emoji and Latin code-switch handling strategies on Khmer sentiment classification?
+- **Hypotheses:**
+  - **H2a:** Mapping emojis to abstract sentiment tokens (`--norm_emoji map`) yields better macro-F1 than keeping them raw (`keep`) or removing them (`remove`).
+  - **H2b:** Tagging Latin spans (`--norm_latin_action tag`) yields more robust performance on code-switched inputs than leaving Latin text unchanged (`none`).
+- **Code & Config:**
+  - Normalization implementation: `modeling/text_normalization.py`.
+  - Transformer grid: `experiments/tokenizer_transformer_grid.yml` (via `norm_latin_action`) and extensions of `experiments/normalization_ablation_baseline.yml` (via `norm_emoji`).
+  - Group definitions (e.g., code-switched vs. non-code-switched): `annotation/sample_data/groups.csv`.
+- **Protocol:** Run experiments with different `norm_emoji` and `norm_latin_action` values, then analyze performance overall and by groups.
+
+### RQ3: Baseline vs. Transformer Trade-offs
+
+- **Question:** How do n-gram-based baselines compare to multilingual transformers in accuracy, calibration, and computational cost for Khmer sentiment analysis?
+- **Hypotheses:**
+  - **H3a:** Multilingual transformers (e.g., `xlm-roberta-base`) outperform the best char n-gram baseline in macro-F1 on identical splits.
+  - **H3b:** Calibrated baselines can achieve comparable or better calibration error (ECE, Brier score) than transformers despite lower accuracy.
+  - **H3c:** The baseline requires much lower computational resources (training/inference time, memory), making it preferable in constrained settings.
+- **Code & Config:**
+  - Baseline: `modeling/train_baseline.py`.
+  - Transformer: `modeling/train_transformer.py`.
+  - Normalization grid: `experiments/normalization_ablation_baseline.yml`.
+  - Calibration grid: `experiments/calibration_grid_baseline.yml`.
+  - Transformer grid: `experiments/tokenizer_transformer_grid.yml`.
+- **Protocol:** Choose a strong baseline configuration and one or more transformer configurations from the grids, then compare metrics and resource usage under a shared setup.
+
+### RQ4: Tokenizer Design for Khmer
+
+- **Question:** How do tokenizer type (Unigram vs. BPE), vocabulary size, and normalization choices affect downstream Khmer sentiment performance?
+- **Hypotheses:**
+  - **H4a:** Khmer-specific tokenizers trained with appropriate normalization achieve better coverage and shorter sequences than off-the-shelf multilingual tokenizers.
+  - **H4b:** For a fixed backbone, using a Khmer-specific tokenizer improves macro-F1 over the default tokenizer.
+  - **H4c:** Intermediate vocabulary sizes (e.g., 16k) offer a better trade-off between performance and sequence length than very small (8k) or large (32k) vocabularies.
+- **Code & Config:**
+  - Tokenizer training: `tools/train_tokenizer.py`.
+  - Transformer training: `modeling/train_transformer.py`.
+  - Grid: `experiments/tokenizer_transformer_grid.yml` (extended with tokenizer paths).
+- **Protocol:** Train several tokenizers, plug them into transformer experiments via `--tokenizer_path`, and compare tokenizer-level and model-level metrics.
+
+### RQ5: Calibration and Uncertainty
+
+- **Question:** How do different calibration methods and conformal prediction techniques affect the reliability of Khmer sentiment models?
+- **Hypotheses:**
+  - **H5a:** Post-hoc calibration (Platt, isotonic, temperature scaling) reduces ECE compared to uncalibrated models.
+  - **H5b:** Temperature scaling gives a favorable balance between simplicity and calibration quality for the baseline.
+  - **H5c:** Conformal prediction with calibrated scores achieves near-nominal coverage with compact prediction sets.
+- **Code & Config:**
+  - Calibration utilities: `modeling/calibration_utils.py`.
+  - Conformal prediction: `modeling/conformal_predict.py`.
+  - Calibration grid: `experiments/calibration_grid_baseline.yml`.
+- **Protocol:** Use the calibration grid to select good settings, then study conformal coverage and set size using the saved calibrated scores.
+
+---
+
+## 2. Reproducibility and Tracking
+
+### 2.1 Deterministic Setup
+
+- All training scripts expose `--seed` (default 42 or 123 depending on script/config). Seeds are applied to Python, NumPy, and PyTorch (where applicable), and cuDNN deterministic flags are set.
+- At each run, a snapshot of configuration and environment is saved to `<output_dir>/experiment_config.json`.
+
+### 2.2 Experiment Tracking
+
+- **Tracking backends:**
+  - MLflow is enabled by default (`mlruns/` in the project root).
+  - Weights & Biases (W&B) is optionally supported.
+- **Common flags (baseline and transformer):**
+  - `--tracking {none,mlflow,wandb}` (default `mlflow`).
+  - `--experiment_name` (logical name for the run).
+  - `--mlflow_tracking_uri` (optional; default is local `./mlruns`).
+  - `--mlflow_experiment` (grouping under MLflow).
+  - `--wandb_project`, `--wandb_entity`, `--wandb_mode` (for W&B).
+  - `--config` (YAML experiment config; merged with CLI overrides).
+
+**Artifacts logged:**
+- `metrics.json` (core metrics and calibration details).
+- Confusion matrices (baseline) as CSV.
+- Model artifacts (e.g., vectorizers/models/tokenizers).
+
+### 2.3 Example: Baseline with MLflow
+
 ```bash
 python modeling/train_baseline.py \
   --input annotation/sample_data/final_dataset.csv \
+  --use_splits \
   --output_dir runs/baseline_chargram \
   --experiment_name baseline_chargram \
   --tracking mlflow \
+  --mlflow_experiment khmer_baselines \
   --seed 123 \
   --normalize_all
 
-# then
 mlflow ui --backend-store-uri ./mlruns
 ```
 
-### 1.4 Example: Transformer with MLflow
+### 2.4 Example: Transformer with MLflow
+
 ```bash
 python modeling/train_transformer.py \
   --input annotation/sample_data/final_dataset.csv \
@@ -43,28 +133,38 @@ python modeling/train_transformer.py \
   --model_name xlm-roberta-base \
   --experiment_name transformer_xlmr \
   --tracking mlflow \
+  --mlflow_experiment khmer_transformers \
   --seed 123 \
   --normalize_all
 ```
 
-## 2. Khmer Text Normalization
+---
 
-The normalization module now includes Khmer-specific rules and optional configurations. Use `--normalize_all` for a sensible preset suitable for Khmer social text.
+## 3. Khmer Text Normalization
 
-### 2.1 Supported Operations
-- Zero-width removal (ZWSP, ZWNJ, ZWJ, BOM)
-- Unicode NFC and diacritics reordering
-- Khmer digits mapping (U+17E0–U+17E9 → ASCII 0–9)
-- Khmer punctuation normalization (។, ៕, ៖)
-- General punctuation normalization (curly quotes, dashes, ellipsis, repeated punctuation)
-- Emoji handling: keep/remove/map
-- Elongation reduction: compress >2 repeats to 2
-- Whitespace normalization
-- Latin code-switch handling: none/tag/strip with threshold
+The normalization module in `modeling/text_normalization.py` implements Khmer-specific rules exposed via CLI flags on training scripts.
 
-### 2.2 CLI Flags (available to be added/used)
+### 3.1 Supported Operations
+
+- Removal of zero-width characters (ZWSP, ZWNJ, ZWJ, BOM).
+- Unicode NFC and diacritics reordering.
+- Khmer digit mapping (U+17E0–U+17E9 → ASCII `0–9`).
+- Khmer punctuation normalization (e.g., `។`, `៕`, `៖`).
+- General punctuation normalization (quotes, dashes, ellipsis, repeated punctuation).
+- Emoji handling: `keep` / `remove` / `map`.
+- Elongation reduction (compressing > 2 repeats to 2).
+- Whitespace normalization.
+- Latin code-switch handling: `none` / `tag` / `strip` plus threshold.
+
+### 3.2 CLI Flags
+
+Main preset and components (supported by the normalization module and, where wired, by training scripts):
+
 - `--normalize_all`
-- `--norm_nfc`, `--norm_whitespace`, `--norm_punct`, `--norm_elongation`
+- `--norm_nfc`
+- `--norm_whitespace`
+- `--norm_punct`
+- `--norm_elongation`
 - `--norm_emoji {keep,remove,map}`
 - `--norm_zero_width`
 - `--norm_khmer_digits {keep,map}`
@@ -73,206 +173,315 @@ The normalization module now includes Khmer-specific rules and optional configur
 - `--norm_latin_action {none,tag,strip}`
 - `--norm_latin_threshold <float>`
 
-Note: Baseline and transformer scripts already support the first set and will honor additional flags once added to their argparse definitions. The normalization module fully supports all flags today.
+> Note: Some flags may need to be explicitly added to the argparse definitions in the training scripts if not already present; the normalization module itself supports them.
 
-### 2.3 Recommended Protocol
-1. Start with `--normalize_all` to get consistent gains.
-2. Ablate individual operations (e.g., disable Khmer digits mapping) and report accuracy/F1 changes on val/test.
-3. Tie error categories (from error/stress evaluation) to normalization operations for qualitative analysis.
+### 3.3 Recommended Normalization Protocol
 
-## 3. Tokenizer Experiments for Khmer
+1. Use `--normalize_all` as the default for all reported experiments.
+2. For ablations, vary one or two normalization components at a time using `experiments/normalization_ablation_baseline.yml`.
+3. Connect observed error patterns (e.g., from `modeling/error_analysis.py`) back to specific normalization operations when writing qualitative analysis.
 
-A new utility trains Unigram/BPE tokenizers on Khmer corpora.
+---
 
-### 3.1 Training a Tokenizer
+## 4. Tokenizer Experiments
+
+Tokenizer experiments are centered on `tools/train_tokenizer.py` and integration into transformer models via `modeling/train_transformer.py`.
+
+### 4.1 Training a Tokenizer
+
 ```bash
-# Unigram from CSV
-authors/tools/train_tokenizer.py \
+# Unigram on the main CSV
+python tools/train_tokenizer.py \
   --input_csv annotation/sample_data/final_dataset.csv \
   --text_column text \
   --output_dir tokenizers/unigram_kh_16k \
-  --type unigram --vocab_size 16000 --normalize_all
+  --type unigram \
+  --vocab_size 16000 \
+  --normalize_all
 
-# BPE from text files
+# BPE on text files
 python tools/train_tokenizer.py \
   --input_txt data/corpus1.txt data/corpus2.txt \
   --output_dir tokenizers/bpe_kh_32k \
-  --type bpe --vocab_size 32000 --norm_khmer_punct --norm_khmer_digits map
+  --type bpe \
+  --vocab_size 32000 \
+  --norm_khmer_punct \
+  --norm_khmer_digits map
 ```
+
 Artifacts:
-- `tokenizer.json`
-- `tokenizer_report.json` (coverage proxy, average tokens on held-out, normalization snapshot)
+- `tokenizer.json` (used by Hugging Face `AutoTokenizer`).
+- `tokenizer_report.json` (coverage proxy, average tokens, length distribution).
+- Optionally, `normalization.json` describing training-time normalization flags.
 
-### 3.2 Integrating Custom Tokenizers
-- For transformers: replace the tokenizer by pointing to the directory containing `tokenizer.json`.
-  ```python
-  from transformers import AutoTokenizer
-  tok = AutoTokenizer.from_pretrained("tokenizers/unigram_kh_16k", use_fast=True)
-  ```
-- Evaluate downstream impact by fine-tuning with the custom tokenizer while keeping the same model (e.g., XLM-R). Consider models that support external tokenizers.
+### 4.2 Integrating Tokenizers into Transformer Training
 
-### 3.3 Reporting
-- Compare Unigram vs. BPE, multiple vocab sizes (e.g., 8k/16k/32k).
-- Report downstream accuracy/F1 and calibration metrics.
-- Include qualitative tokenization analysis (wordpiece boundaries around sentiment-bearing morphemes, Khmer digits, punctuation).
+- Extend `modeling/train_transformer.py` to accept an optional `--tokenizer_path` argument.
+- Loading pattern:
 
-## 4. Statistical Rigor
-- Report confidence intervals (bootstrap) for key metrics.
-- Use significance testing (e.g., paired bootstrap or approx. randomization) for model comparisons.
-- Keep experiment configs and MLflow/W&B runs linked in the appendix for reproducibility.
+```python
+from transformers import AutoTokenizer
 
-## 5. Final Experimental Grids
+if args.tokenizer_path:
+    tok = AutoTokenizer.from_pretrained(args.tokenizer_path, use_fast=True)
+else:
+    tok = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
+```
 
-Step 2 (Define and Implement Experimental Program) is encoded as YAML experiment grids under `experiments/` and executed via `tools/run_experiment_grid.py`. These grids correspond to the main research axes in the thesis.
+- Log `tokenizer_path` and copy `tokenizer_report.json` into the run directory and experiment tracker.
 
-### 5.1 Normalization Ablation (Baseline)
+### 4.3 Grid Configuration Pattern (`experiments/tokenizer_transformer_grid.yml`)
 
-Config: `experiments/normalization_ablation_baseline.yml`
+Use fields such as:
 
-- **Script**: `modeling/train_baseline.py`
-- **Purpose**: Study the impact of Khmer-specific normalization operations on baseline performance.
-- **Fixed settings** (selected):
+- `model_name`: e.g., `xlm-roberta-base`.
+- `tokenizer_path`: `null` or a path like `tokenizers/unigram_kh_16k`.
+- `norm_latin_action`: `none` / `tag`.
+
+Example grid entries:
+- Default tokenizer:
+  - `model_name: xlm-roberta-base`
+  - `tokenizer_path: null`
+- Khmer Unigram 16k:
+  - `model_name: xlm-roberta-base`
+  - `tokenizer_path: tokenizers/unigram_kh_16k`
+
+Run via:
+
+```bash
+python tools/run_experiment_grid.py \
+  --config experiments/tokenizer_transformer_grid.yml
+```
+
+---
+
+## 5. Baseline vs. Transformer Comparison Protocol
+
+This protocol is designed for a central comparison that can be reported in a thesis or paper.
+
+### 5.1 Common Setup
+
+- **Dataset:** `annotation/sample_data/final_dataset.csv` with `--use_splits`.
+- **Normalization:** `--normalize_all` for all models.
+- **Random seed:** `--seed 123`.
+- **Tracking:** `--tracking mlflow` with a shared `--mlflow_experiment` (e.g., `khmer_baseline_vs_transformer`).
+- **Core metrics:** Accuracy and macro-F1 on validation and test.
+- **Secondary metrics:** Per-class precision/recall/F1, confusion matrices, ECE, Brier score.
+- **Efficiency metrics:** Training time, inference time per example, parameter count.
+
+### 5.2 Baseline Configuration
+
+- **Script:** `modeling/train_baseline.py`.
+- **Model:** Char n-gram TF-IDF + Logistic Regression.
+- **Typical hyperparameters:** n-grams 3–5, `min_df=2`, `class_weight=balanced`.
+- **Calibration:** `calibrate` in `{none, platt, isotonic, temperature}`.
+
+Example (strong baseline with temperature scaling):
+
+```bash
+python modeling/train_baseline.py \
+  --input annotation/sample_data/final_dataset.csv \
+  --use_splits \
+  --output_dir runs/baseline_best \
+  --experiment_name baseline_best \
+  --tracking mlflow \
+  --mlflow_experiment khmer_baseline_vs_transformer \
+  --seed 123 \
+  --normalize_all \
+  --calibrate temperature
+```
+
+### 5.3 Transformer Configuration
+
+- **Script:** `modeling/train_transformer.py`.
+- **Backbones:** `xlm-roberta-base` (primary), optionally `bert-base-multilingual-cased`.
+- **Typical hyperparameters:** `epochs=3`, `batch_size=16`, `lr=2e-5`, `weight_decay=0.01`, `warmup_ratio=0.1`, `max_length=192`.
+
+Example:
+
+```bash
+python modeling/train_transformer.py \
+  --input annotation/sample_data/final_dataset.csv \
+  --use_splits \
+  --output_dir runs/xlmr_best \
+  --model_name xlm-roberta-base \
+  --experiment_name xlmr_best \
+  --tracking mlflow \
+  --mlflow_experiment khmer_baseline_vs_transformer \
+  --seed 123 \
+  --normalize_all
+```
+
+### 5.4 Calibration and Uncertainty
+
+- For the baseline, use `experiments/calibration_grid_baseline.yml` to identify good calibration strategies, then report ECE, Brier score, and reliability diagrams using `modeling/calibration_utils.py`.
+- For transformers, apply temperature scaling or equivalent at evaluation, compute the same metrics, and compare.
+- Optionally, apply `modeling/conformal_predict.py` on calibrated scores for both models and compare empirical coverage and prediction-set size.
+
+### 5.5 Efficiency Measurement
+
+- Log training start/end timestamps and hardware details (GPU/CPU, RAM, CUDA) inside scripts or via MLflow tags.
+- For inference, run batched prediction over the test split and measure average latency per example and throughput.
+- Record parameter counts from model summaries.
+
+---
+
+## 6. Experiment Grids (`experiments/`)
+
+This section summarizes the main YAML grids and their intended research roles.
+
+### 6.1 Normalization Ablation (Baseline)
+
+- **Config:** `experiments/normalization_ablation_baseline.yml`.
+- **Script:** `modeling/train_baseline.py`.
+- **Purpose:** Study the effect of Khmer-specific normalization variants on a fixed baseline.
+- **Fixed settings:**
   - Dataset: `annotation/sample_data/final_dataset.csv` with `--use_splits`.
   - Model: char n-gram TF-IDF + Logistic Regression.
-  - Splits: train/val/test = 0.8/0.1/0.1.
-  - N-grams: 3–5; `min_df=2`; `class_weight=balanced`; `calibrate=none`.
+  - Splits: 0.8 / 0.1 / 0.1.
   - Seed: 123.
-- **Grid parameters**:
+  - Calibration: `calibrate=none`.
+- **Grid parameters (example):**
   - `normalize_all: [true]`.
   - `norm_khmer_digits: ["keep", "map"]`.
   - `norm_khmer_punct: [false, true]`.
   - `norm_emoji: ["keep", "map"]`.
 
 Run:
+
 ```bash
 python tools/run_experiment_grid.py \
   --config experiments/normalization_ablation_baseline.yml
 ```
 
-Each run writes to `runs/norm_ablation_baseline/run_XXX...` and logs parameters + metrics to MLflow (experiment `khmer_norm_ablation`).
+### 6.2 Calibration Grid (Baseline)
 
-### 5.2 Calibration & Uncertainty (Baseline)
-
-Config: `experiments/calibration_grid_baseline.yml`
-
-- **Script**: `modeling/train_baseline.py`
-- **Purpose**: Compare calibration methods and CV strategies for the baseline model.
-- **Fixed settings** (selected):
-  - Same dataset/splits as normalization ablation.
-  - Normalization: `normalize_all=true`.
-  - Model: same n-gram + Logistic Regression baseline.
-- **Grid parameters**:
+- **Config:** `experiments/calibration_grid_baseline.yml`.
+- **Script:** `modeling/train_baseline.py`.
+- **Purpose:** Compare calibration methods and CV strategies.
+- **Fixed settings:** same dataset/splits/model as normalization ablation, `normalize_all=true`.
+- **Grid parameters (example):**
   - `calibrate: ["none", "platt", "isotonic", "temperature"]`.
   - `calibrate_cv_folds: [0, 5]`.
 
 Run:
+
 ```bash
 python tools/run_experiment_grid.py \
   --config experiments/calibration_grid_baseline.yml
 ```
 
-Each run logs calibration settings and resulting metrics to MLflow (experiment `khmer_calibration`).
+### 6.3 Transformer and Tokenizer Grid
 
-### 5.3 Tokenizer and Transformer Variants
-
-Config: `experiments/tokenizer_transformer_grid.yml`
-
-- **Script**: `modeling/train_transformer.py`
-- **Purpose**: Compare multilingual transformer backbones and Khmer Latin-handling strategies; extendable to custom tokenizers.
-- **Fixed settings** (selected):
+- **Config:** `experiments/tokenizer_transformer_grid.yml`.
+- **Script:** `modeling/train_transformer.py`.
+- **Purpose:** Compare transformer backbones and Latin-handling/tokenizer strategies.
+- **Fixed settings (example):**
   - Dataset: `annotation/sample_data/final_dataset.csv` with `--use_splits`.
-  - Training: `epochs=3`, `batch_size=16`, `lr=2e-5`, `weight_decay=0.01`, `warmup_ratio=0.1`.
-  - Max length: 192; `grad_accum=1`; `fp16=false`; `seed=123`.
+  - Training: `epochs=3`, `batch_size=16`, `lr=2e-5`, `weight_decay=0.01`, `warmup_ratio=0.1`, `max_length=192`.
   - Normalization: `normalize_all=true`.
-- **Grid parameters**:
+- **Grid parameters (example):**
   - `model_name: ["xlm-roberta-base", "bert-base-multilingual-cased"]`.
   - `norm_latin_action: ["none", "tag"]`.
+  - `tokenizer_path`: optionally included to switch between default and Khmer-specific tokenizers.
 
 Run:
+
 ```bash
 python tools/run_experiment_grid.py \
   --config experiments/tokenizer_transformer_grid.yml
 ```
 
-To integrate custom tokenizers, add their directories to `model_name` (if compatible with `AutoTokenizer.from_pretrained`).
+---
 
-## 6. Metrics and Tests
+## 7. Metrics and Evaluation
 
-Across all experiments, the primary **evaluation metrics** are:
+### 7.1 Baseline Metrics (`modeling/train_baseline.py`)
 
-- **Baseline (train_baseline.py)**:
-  - Validation/Test accuracy.
-  - Validation/Test macro-F1.
-  - Per-class precision/recall/F1 (via `classification_report`).
-  - Confusion matrices (saved as `confusion_matrix.csv`).
-  - Calibration metadata (if enabled) saved in `metrics.json` under `"calibration"`.
+Saved in `metrics.json` and logged to the tracker:
 
-- **Transformers (train_transformer.py)**:
-  - Evaluation metrics per HuggingFace `Trainer`:
-    - `eval_accuracy`.
-    - `eval_f1_macro` (macro-F1, via `evaluate` library).
-  - These are stored in `metrics.json` and logged via the experiment tracker.
+- Validation and test accuracy.
+- Validation and test macro-F1.
+- Per-class precision/recall/F1 (via `classification_report`).
+- Confusion matrix (`confusion_matrix.csv`).
+- Calibration metrics (if calibration is enabled).
 
-Additional statistical rigor (confidence intervals, significance testing) should be added at the analysis stage, using the MLflow/W&B runs and saved `metrics.json` files as input.
+### 7.2 Transformer Metrics (`modeling/train_transformer.py`)
 
-## 7. Thesis–Code Mapping
+Stored under `metrics.json` and logged via Hugging Face `Trainer` integration:
 
-This section suggests a mapping between typical thesis chapters/sections and concrete code artifacts to aid traceability. Adjust section numbers/titles to your actual thesis.
+- `eval_accuracy`.
+- `eval_f1_macro` (macro-F1 via the `evaluate` library).
 
-### 7.1 Dataset and Annotation (Thesis Chapter 3)
+Where relevant, calibration and uncertainty metrics can be added based on outputs from `modeling/calibration_utils.py` and `modeling/conformal_predict.py`.
 
-- **Code/Artifacts**:
-  - Annotation workflow: `annotation/README.md`, `annotation/guidelines.md`.
-  - Adjudication scripts/logs: `annotation/adjudicate.py`, `annotation/adjudication_log.md`.
-  - Dataset curation & validation: `annotation/finalize_dataset.py`, `tools/validate_dataset.py`, `tools/ingest_dataset.py`.
-  - Sample finalized data: `annotation/sample_data/final_dataset.csv` and `final_train/val/test.csv`.
+---
 
-### 7.2 Preprocessing and Normalization (Thesis Chapter 4)
+## 8. Thesis–Code Mapping
 
-- **Code/Artifacts**:
-  - Normalization implementation: `modeling/text_normalization.py`.
-  - Normalization configs saved per model: `normalization.json` in each `output_dir`.
-  - Normalization ablation experiments: `experiments/normalization_ablation_baseline.yml` + corresponding runs in MLflow (`khmer_norm_ablation`).
+Use this mapping to reference specific scripts/configurations in a thesis or report.
 
-### 7.3 Baseline Models (Thesis Chapter 5)
+### 8.1 Dataset and Annotation (e.g., Chapter 3)
 
-- **Code/Artifacts**:
-  - Baseline training: `modeling/train_baseline.py`.
-  - Baseline inference/evaluation: `modeling/predict.py`.
-  - Calibration and resampling options integrated in baseline script.
-  - Calibration experiments: `experiments/calibration_grid_baseline.yml` + MLflow experiment `khmer_calibration`.
+- Annotation workflow: `annotation/README.md`, `annotation/guidelines.md`.
+- Adjudication: `annotation/adjudicate.py`, `annotation/adjudication_log.md`.
+- Curation and validation: `annotation/finalize_dataset.py`, `tools/validate_dataset.py`, `tools/ingest_dataset.py`.
+- Sample finalized data: `annotation/sample_data/final_dataset.csv`.
 
-### 7.4 Transformer Models and Tokenizers (Thesis Chapter 6)
+### 8.2 Preprocessing and Normalization (e.g., Chapter 4)
 
-- **Code/Artifacts**:
-  - Transformer training: `modeling/train_transformer.py`.
-  - Transformer inference: `modeling/predict_transformer.py`.
-  - Tokenizer training utility: `tools/train_tokenizer.py` and resulting `tokenizers/*/tokenizer.json`.
-  - Tokenizer/transformer experiments: `experiments/tokenizer_transformer_grid.yml` + MLflow experiment `khmer_tokenizer`.
+- Implementation: `modeling/text_normalization.py`.
+- Normalization configs per run: `normalization.json` in each `output_dir`.
+- Ablation experiments: `experiments/normalization_ablation_baseline.yml`.
 
-### 7.5 Calibration, Uncertainty, and Error Analysis (Thesis Chapter 7)
+### 8.3 Baseline Models (e.g., Chapter 5)
 
-- **Code/Artifacts**:
-  - Calibration utilities: `modeling/calibration_utils.py`.
-  - Conformal prediction: `modeling/conformal_predict.py`.
-  - Error and stress evaluation: `modeling/error_analysis.py`, `modeling/stress_eval.py`.
-  - Group-based analyses: `annotation/sample_data/groups.csv`, `tests/test_group_splits.py`.
-  - Calibration experiment runs: see MLflow experiment `khmer_calibration` and associated `metrics.json` files.
+- Training: `modeling/train_baseline.py`.
+- Inference: `modeling/predict.py`.
+- Calibration experiments: `experiments/calibration_grid_baseline.yml`.
 
-### 7.6 Experimental Protocol and Reproducibility (Thesis Appendix)
+### 8.4 Transformer Models and Tokenizers (e.g., Chapter 6)
 
-- **Code/Artifacts**:
-  - Experiment utilities and config snapshots: `modeling/utils/experiment.py` and `<output_dir>/experiment_config.json`.
-  - Experiment grids: all files under `experiments/`.
-  - Grid runner: `tools/run_experiment_grid.py`.
-  - Reproducibility examples: Section 1 of this guide and Quickstart examples in the project `README.md`.
+- Transformer training: `modeling/train_transformer.py`.
+- Transformer inference: `modeling/predict_transformer.py`.
+- Tokenizer training: `tools/train_tokenizer.py`.
+- Tokenizer/transformer grids: `experiments/tokenizer_transformer_grid.yml`.
 
-This mapping can be referenced in the thesis appendix or methodology section to demonstrate how each reported result corresponds to specific scripts, configurations, and tracked runs, ensuring tight coupling between the written document and this repository.
+### 8.5 Calibration, Uncertainty, and Error Analysis (e.g., Chapter 7)
 
-## 8. Checklists
+- Calibration utilities: `modeling/calibration_utils.py`.
+- Conformal prediction: `modeling/conformal_predict.py`.
+- Error & stress evaluation: `modeling/error_analysis.py`, `modeling/stress_eval.py`.
+- Group analyses: `annotation/sample_data/groups.csv`, `tests/test_group_splits.py`.
+
+### 8.6 Experimental Protocol and Reproducibility (Appendix)
+
+- Experiment utilities and config snapshots: `modeling/utils/experiment.py`, `<output_dir>/experiment_config.json`.
+- Experiment grids: `experiments/*.yml`.
+- Grid runner: `tools/run_experiment_grid.py`.
+- Quickstart examples: project root `README.md`.
+
+---
+
+## 9. Practical Checklists
+
+Use these checklists before finalizing results and writing.
+
+### 9.1 Data and Preprocessing
+
 - [ ] Dataset validated with `tools/validate_dataset.py`.
-- [ ] Normalization config saved (`normalization.json`) next to model/tokenizer.
-- [ ] Experiment tracking on (MLflow or W&B) with `experiment_config.json` snapshot per run.
-- [ ] Tokenizer artifacts versioned by vocab size and normalization setup.
-- [ ] Report includes ablations and error/stress analysis tied to normalization/tokenizer choices.
-- [ ] Experimental grids under `experiments/` correspond to thesis experimental sections and are referenced in the thesis.
+- [ ] Final splits fixed and documented (`--use_splits`).
+- [ ] Normalization config saved (`normalization.json`) next to each model/tokenizer.
+
+### 9.2 Experiments and Tracking
+
+- [ ] All reported experiments run with `--tracking mlflow` or W&B.
+- [ ] `experiment_config.json` present in each `output_dir`.
+- [ ] MLflow/W&B runs tagged with relevant RQ identifiers (e.g., `rq1_normalization`).
+
+### 9.3 Reporting
+
+- [ ] Ablation results (normalization, tokenizer) summarized in tables with clear configs.
+- [ ] Baseline vs. transformer comparison includes accuracy, macro-F1, calibration, and efficiency.
+- [ ] Error and stress analyses tied to normalization and tokenizer design.
+- [ ] Thesis/report explicitly references the corresponding scripts and configs from this repository.
