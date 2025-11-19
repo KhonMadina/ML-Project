@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Khmer Sentiment Analysis Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f7;
+      color: #222;
+    }
+    header {
+      background: #1f2937;
+      color: #fff;
+      padding: 1rem 1.5rem;
+    }
+    header h1 {
+      margin: 0 0 0.25rem 0;
+      font-size: 1.4rem;
+    }
+    header p {
+      margin: 0;
+      font-size: 0.9rem;
+      opacity: 0.85;
+    }
+    main {
+      max-width: 960px;
+      margin: 1.5rem auto 2rem;
+      padding: 0 1rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .input-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 90px;
+      resize: vertical;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+    label {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      margin-top: 0.75rem;
+    }
+    button {
+      background: #2563eb;
+      border: none;
+      color: #fff;
+      padding: 0.55rem 1.1rem;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .small {
+      font-size: 0.8rem;
+      color: #6b7280;
+    }
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-top: 0.75rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .badge-pos { background: #ecfdf3; color: #166534; }
+    .badge-neg { background: #fef2f2; color: #991b1b; }
+    .badge-neu { background: #eff6ff; color: #1d4ed8; }
+    .badge-set { background: #f5f3ff; color: #5b21b6; }
+
+    .prob-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    .prob-table th,
+    .prob-table td {
+      padding: 0.2rem 0.35rem;
+      text-align: left;
+    }
+    .prob-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 0.25rem;
+    }
+    .prob-bar-bg {
+      flex: 1;
+      background: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+      height: 0.55rem;
+    }
+    .prob-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      font-size: 0.8rem;
+      color: #4b5563;
+      margin-top: 0.5rem;
+    }
+
+    .error {
+      color: #b91c1c;
+      font-size: 0.85rem;
+      margin-top: 0.4rem;
+    }
+
+    code {
+      background: #f3f4f6;
+      padding: 0.1rem 0.3rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Khmer Sentiment Analysis Demo</h1>
+    <p>Enter Khmer text to see sentiment label, probabilities, and conformal prediction set.</p>
+  </header>
+  <main>
+    <section class="card">
+      <div class="input-row">
+        <label for="text">Input Khmer text</label>
+        <textarea id="text" placeholder="ឧទាហរណ៍៖ អរគុណច្រើន សេវាកម្មល្អបំផុត 🙄"></textarea>
+        <div class="controls">
+          <button id="btnPredict">Predict sentiment</button>
+          <span class="small" id="modelInfo">Model: (loading...)</span>
+        </div>
+        <div class="error" id="error"></div>
+      </div>
+    </section>
+
+    <section class="card" id="resultCard" style="display:none;">
+      <h2 style="margin-top:0;font-size:1.05rem;">Prediction Result</h2>
+      <div class="result-grid">
+        <div>
+          <h3 style="font-size:0.95rem;margin-bottom:0.25rem;">Labels</h3>
+          <div id="predLabel"></div>
+          <div id="confSet" style="margin-top:0.35rem;"></div>
+          <div class="meta-row">
+            <div id="tauInfo"></div>
+          </div>
+        </div>
+        <div>
+          <h3 style="font-size:0.95rem;margin-bottom:0.35rem;">Probabilities</h3>
+          <div id="probabilities"></div>
+        </div>
+      </div>
+      <hr style="margin:0.9rem 0; border:0; border-top:1px solid #e5e7eb;" />
+      <h3 style="font-size:0.95rem;margin-bottom:0.35rem;">Internal processing</h3>
+      <p class="small" style="margin-bottom:0.25rem;">Normalized text used by the model:</p>
+      <pre id="normalizedText" style="background:#f9fafb;border-radius:8px;padding:0.6rem;font-size:0.9rem;white-space:pre-wrap;"></pre>
+    </section>
+
+    <section class="card">
+      <h2 style="margin-top:0;font-size:1.0rem;">API reference</h2>
+      <p class="small">The UI calls the FastAPI backend:</p>
+      <ul class="small">
+        <li><code>GET /meta</code> &rarr; model information and labels.</li>
+        <li><code>POST /predict</code> with JSON <code>{"text": "..."}</code> &rarr; prediction, probabilities, conformal set.</li>
+        <li>Interactive docs: <code>/docs</code></li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    const btn = document.getElementById('btnPredict');
+    const textEl = document.getElementById('text');
+    const errorEl = document.getElementById('error');
+    const resultCard = document.getElementById('resultCard');
+    const predLabelEl = document.getElementById('predLabel');
+    const confSetEl = document.getElementById('confSet');
+    const probsEl = document.getElementById('probabilities');
+    const normEl = document.getElementById('normalizedText');
+    const tauInfoEl = document.getElementById('tauInfo');
+    const modelInfoEl = document.getElementById('modelInfo');
+
+    async function loadMeta() {
+      try {
+        const res = await fetch('/meta');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const labels = (data.labels || []).join(', ');
+        modelInfoEl.textContent = `Model: ${data.model_dir || 'unknown'} | Labels: [${labels}] | tau=${data.tau}`;
+      } catch (e) {
+        modelInfoEl.textContent = 'Model: could not load metadata. Make sure the API is running.';
+      }
+    }
+
+    function sentimentBadge(label) {
+      const span = document.createElement('span');
+      span.classList.add('badge');
+      if (label === 'POS') span.classList.add('badge-pos');
+      else if (label === 'NEG') span.classList.add('badge-neg');
+      else span.classList.add('badge-neu');
+      span.textContent = label;
+      return span;
+    }
+
+    function probColor(label) {
+      if (label === 'POS') return '#16a34a';
+      if (label === 'NEG') return '#dc2626';
+      if (label === 'NEU') return '#2563eb';
+      return '#4b5563';
+    }
+
+    function renderProbabilities(probabilities) {
+      probsEl.innerHTML = '';
+      const keys = Object.keys(probabilities).sort();
+      keys.forEach(k => {
+        const v = probabilities[k];
+        const label = k.replace('proba_', '').toUpperCase();
+        const row = document.createElement('div');
+        row.className = 'prob-row';
+
+        const name = document.createElement('span');
+        name.style.width = '40px';
+        name.textContent = label;
+
+        const barBg = document.createElement('div');
+        barBg.className = 'prob-bar-bg';
+
+        const barFill = document.createElement('div');
+        barFill.className = 'prob-bar-fill';
+        barFill.style.width = Math.round(v * 100) + '%';
+        barFill.style.background = probColor(label);
+
+        const val = document.createElement('span');
+        val.style.width = '48px';
+        val.style.textAlign = 'right';
+        val.textContent = (v * 100).toFixed(1) + '%';
+
+        barBg.appendChild(barFill);
+        row.appendChild(name);
+        row.appendChild(barBg);
+        row.appendChild(val);
+        probsEl.appendChild(row);
+      });
+    }
+
+    async function predict() {
+      errorEl.textContent = '';
+      const text = textEl.value.trim();
+      if (!text) {
+        errorEl.textContent = 'Please enter some Khmer text.';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Predicting...';
+      try {
+        const res = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        if (!res.ok) {
+          throw new Error('Prediction failed with status ' + res.status);
+        }
+        const data = await res.json();
+
+        // Predicted label
+        predLabelEl.innerHTML = '';
+        predLabelEl.appendChild(document.createTextNode('Predicted label: '));
+        predLabelEl.appendChild(sentimentBadge(data.pred_label));
+
+        // Conformal set
+        confSetEl.innerHTML = '';
+        const setSpan = document.createElement('span');
+        setSpan.classList.add('badge', 'badge-set');
+        setSpan.textContent = 'Prediction set: [' + (data.conformal_set || []).join(', ') + ']';
+        confSetEl.appendChild(setSpan);
+
+        // Tau info
+        tauInfoEl.textContent = 'Threshold tau = ' + (data.tau != null ? data.tau.toFixed(3) : '?');
+
+        // Probabilities
+        renderProbabilities(data.probabilities || {});
+
+        // Normalized text
+        normEl.textContent = data.normalized_text || '';
+
+        resultCard.style.display = 'block';
+      } catch (e) {
+        console.error(e);
+        errorEl.textContent = e.message || 'Prediction failed.';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Predict sentiment';
+      }
+    }
+
+    btn.addEventListener('click', predict);
+    textEl.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        predict();
+      }
+    });
+
+    loadMeta();
+  </script>
+</body>
+</html>

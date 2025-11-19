@@ -205,12 +205,19 @@ def main() -> None:
 
     # Group and normalization
     ap.add_argument("--group_column", default=None)
-    ap.add_argument("--normalize_all", action="store_true", help="Enable default normalization")
-    ap.add_argument("--norm_nfc", action="store_true")
-    ap.add_argument("--norm_whitespace", action="store_true")
-    ap.add_argument("--norm_punct", action="store_true")
-    ap.add_argument("--norm_elongation", action="store_true")
-    ap.add_argument("--norm_emoji", choices=["keep", "remove", "map"], default=None)
+    # Normalization flags (aligned with text_normalization.build_norm_config_from_args)
+    ap.add_argument("--normalize_all", action="store_true", help="Enable a default Khmer/social text normalization pipeline")
+    ap.add_argument("--norm_nfc", action="store_true", help="Apply Unicode NFC normalization")
+    ap.add_argument("--norm_whitespace", action="store_true", help="Collapse whitespace and trim")
+    ap.add_argument("--norm_punct", action="store_true", help="Normalize punctuation variants and compress repeats")
+    ap.add_argument("--norm_elongation", action="store_true", help="Compress elongated character runs (>2 -> 2)")
+    ap.add_argument("--norm_emoji", choices=["keep", "remove", "map"], default=None, help="Emoji handling mode: keep/remove/map-to-token")
+    ap.add_argument("--norm_zero_width", action="store_true", help="Remove zero-width characters (ZWSP, ZWJ, ZWNJ, BOM)")
+    ap.add_argument("--norm_khmer_digits", choices=["keep", "map"], default=None, help="Khmer digit handling: keep as-is or map to ASCII digits")
+    ap.add_argument("--norm_khmer_punct", action="store_true", help="Normalize Khmer punctuation to ASCII equivalents and compress iteration marks")
+    ap.add_argument("--norm_diacritics_reorder", action="store_true", help="Reorder combining diacritics into canonical order after NFC")
+    ap.add_argument("--norm_latin_action", choices=["none", "tag", "strip"], default=None, help="How to handle high Latin code-switching: none/tag/strip")
+    ap.add_argument("--norm_latin_threshold", type=float, default=None, help="Threshold (0-1) of Latin letters to trigger latin_action when enabled")
 
     args = ap.parse_args()
 
@@ -358,12 +365,19 @@ def main() -> None:
             "val_ratio": float(args.val_ratio),
             "test_ratio": float(args.test_ratio),
             "group_column": args.group_column,
+            # Normalization flags and resolved config for reproducibility
             "normalize_all": bool(args.normalize_all),
             "norm_nfc": bool(args.norm_nfc),
             "norm_whitespace": bool(args.norm_whitespace),
             "norm_punct": bool(args.norm_punct),
             "norm_elongation": bool(args.norm_elongation),
             "norm_emoji": args.norm_emoji if args.norm_emoji is not None else None,
+            "norm_zero_width": bool(getattr(args, "norm_zero_width", False)),
+            "norm_khmer_digits": args.norm_khmer_digits if getattr(args, "norm_khmer_digits", None) is not None else None,
+            "norm_khmer_punct": bool(getattr(args, "norm_khmer_punct", False)),
+            "norm_diacritics_reorder": bool(getattr(args, "norm_diacritics_reorder", False)),
+            "norm_latin_action": args.norm_latin_action if getattr(args, "norm_latin_action", None) is not None else None,
+            "norm_latin_threshold": float(args.norm_latin_threshold) if getattr(args, "norm_latin_threshold", None) is not None else None,
         },
         "env": {
             "python": sys.version.replace("\n", " "),

@@ -1,0 +1,14 @@
+artifact_uri: file:///D:/_ml/6-Khmer%20Sentiment%20Analysis/ML-Project/mlruns/0/bd37ae9759df4c329220f4be55a082e8/artifacts
+end_time: 1763526442323
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: bd37ae9759df4c329220f4be55a082e8
+run_name: baseline_chargram
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1763526440481
+status: 3
+tags: []
+user_id: kmadina

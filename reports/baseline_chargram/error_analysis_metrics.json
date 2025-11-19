@@ -1,0 +1,197 @@
+{
+  "accuracy": 0.6,
+  "f1_macro": 0.5945165945165946,
+  "report": {
+    "NEG": {
+      "precision": 0.5,
+      "recall": 0.6,
+      "f1-score": 0.5454545454545454,
+      "support": 5.0
+    },
+    "NEU": {
+      "precision": 1.0,
+      "recall": 0.4,
+      "f1-score": 0.5714285714285714,
+      "support": 5.0
+    },
+    "POS": {
+      "precision": 0.5714285714285714,
+      "recall": 0.8,
+      "f1-score": 0.6666666666666666,
+      "support": 5.0
+    },
+    "accuracy": 0.6,
+    "macro avg": {
+      "precision": 0.6904761904761904,
+      "recall": 0.6,
+      "f1-score": 0.5945165945165946,
+      "support": 15.0
+    },
+    "weighted avg": {
+      "precision": 0.6904761904761905,
+      "recall": 0.6,
+      "f1-score": 0.5945165945165944,
+      "support": 15.0
+    }
+  },
+  "confusion": [
+    [
+      4,
+      1,
+      0
+    ],
+    [
+      2,
+      3,
+      0
+    ],
+    [
+      1,
+      2,
+      2
+    ]
+  ],
+  "label_order": [
+    "POS",
+    "NEG",
+    "NEU"
+  ],
+  "counts": {
+    "total": 15,
+    "misclassified": 6
+  },
+  "calibration": {
+    "available": true,
+    "ECE": 0.2257853958451771,
+    "MCE": 0.9666666666666667,
+    "bins": [
+      {
+        "bin_lower": 0.0,
+        "bin_upper": 0.06666666666666667,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.03333333333333333
+      },
+      {
+        "bin_lower": 0.06666666666666667,
+        "bin_upper": 0.13333333333333333,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.1
+      },
+      {
+        "bin_lower": 0.13333333333333333,
+        "bin_upper": 0.2,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.16666666666666669
+      },
+      {
+        "bin_lower": 0.2,
+        "bin_upper": 0.26666666666666666,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.23333333333333334
+      },
+      {
+        "bin_lower": 0.26666666666666666,
+        "bin_upper": 0.3333333333333333,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.3
+      },
+      {
+        "bin_lower": 0.3333333333333333,
+        "bin_upper": 0.4,
+        "count": 4,
+        "accuracy": 0.25,
+        "confidence": 0.3826331644370123
+      },
+      {
+        "bin_lower": 0.4,
+        "bin_upper": 0.4666666666666667,
+        "count": 5,
+        "accuracy": 0.8,
+        "confidence": 0.4348567016675828
+      },
+      {
+        "bin_lower": 0.4666666666666667,
+        "bin_upper": 0.5333333333333333,
+        "count": 6,
+        "accuracy": 0.6666666666666666,
+        "confidence": 0.4949113686220798
+      },
+      {
+        "bin_lower": 0.5333333333333333,
+        "bin_upper": 0.6,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.5666666666666667
+      },
+      {
+        "bin_lower": 0.6,
+        "bin_upper": 0.6666666666666666,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.6333333333333333
+      },
+      {
+        "bin_lower": 0.6666666666666666,
+        "bin_upper": 0.7333333333333333,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.7
+      },
+      {
+        "bin_lower": 0.7333333333333333,
+        "bin_upper": 0.8,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.7666666666666666
+      },
+      {
+        "bin_lower": 0.8,
+        "bin_upper": 0.8666666666666667,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.8333333333333334
+      },
+      {
+        "bin_lower": 0.8666666666666667,
+        "bin_upper": 0.9333333333333333,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.9
+      },
+      {
+        "bin_lower": 0.9333333333333333,
+        "bin_upper": 1.0,
+        "count": 0,
+        "accuracy": 0.0,
+        "confidence": 0.9666666666666667
+      }
+    ],
+    "n_bins": 15
+  },
+  "slices": {},
+  "env": {
+    "python": "3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]",
+    "sklearn": "1.7.1",
+    "joblib": "1.5.1",
+    "pandas": "2.3.2",
+    "numpy": "2.3.2",
+    "matplotlib": "3.10.6"
+  },
+  "args": {
+    "model_dir": "models\\baseline_chargram",
+    "input_csv": "annotation\\sample_data\\final_test.csv",
+    "output_dir": "reports\\baseline_chargram",
+    "top_k": 50,
+    "slice_column": null,
+    "reliability_bins": 15,
+    "compute_pr_curves": false,
+    "plot_pr_curves": false
+  },
+  "thresholds": {},
+  "pr_summary": {}
+}

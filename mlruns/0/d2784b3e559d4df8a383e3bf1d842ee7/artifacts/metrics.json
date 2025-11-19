@@ -1,0 +1,191 @@
+{
+  "val": {
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.6707070707070707,
+    "report": {
+      "NEG": {
+        "precision": 0.75,
+        "recall": 0.6,
+        "f1-score": 0.6666666666666666,
+        "support": 5.0
+      },
+      "NEU": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "f1-score": 0.8,
+        "support": 5.0
+      },
+      "POS": {
+        "precision": 0.5,
+        "recall": 0.6,
+        "f1-score": 0.5454545454545454,
+        "support": 5.0
+      },
+      "accuracy": 0.6666666666666666,
+      "macro avg": {
+        "precision": 0.6833333333333332,
+        "recall": 0.6666666666666666,
+        "f1-score": 0.6707070707070707,
+        "support": 15.0
+      },
+      "weighted avg": {
+        "precision": 0.6833333333333333,
+        "recall": 0.6666666666666666,
+        "f1-score": 0.6707070707070707,
+        "support": 15.0
+      }
+    },
+    "confusion": [
+      [
+        3,
+        1,
+        1
+      ],
+      [
+        2,
+        3,
+        0
+      ],
+      [
+        1,
+        0,
+        4
+      ]
+    ]
+  },
+  "test": {
+    "accuracy": 0.6,
+    "f1_macro": 0.5945165945165946,
+    "report": {
+      "NEG": {
+        "precision": 0.5,
+        "recall": 0.6,
+        "f1-score": 0.5454545454545454,
+        "support": 5.0
+      },
+      "NEU": {
+        "precision": 1.0,
+        "recall": 0.4,
+        "f1-score": 0.5714285714285714,
+        "support": 5.0
+      },
+      "POS": {
+        "precision": 0.5714285714285714,
+        "recall": 0.8,
+        "f1-score": 0.6666666666666666,
+        "support": 5.0
+      },
+      "accuracy": 0.6,
+      "macro avg": {
+        "precision": 0.6904761904761904,
+        "recall": 0.6,
+        "f1-score": 0.5945165945165946,
+        "support": 15.0
+      },
+      "weighted avg": {
+        "precision": 0.6904761904761905,
+        "recall": 0.6,
+        "f1-score": 0.5945165945165944,
+        "support": 15.0
+      }
+    },
+    "confusion": [
+      [
+        4,
+        1,
+        0
+      ],
+      [
+        2,
+        3,
+        0
+      ],
+      [
+        1,
+        2,
+        2
+      ]
+    ]
+  },
+  "params": {
+    "ngram_range": [
+      3,
+      5
+    ],
+    "min_df": 2,
+    "class_weight": "balanced",
+    "max_iter": 200,
+    "calibrate": "none",
+    "calibrate_cv_folds": 0
+  },
+  "sizes": {
+    "train": 120,
+    "val": 15,
+    "test": 15
+  },
+  "label_order": [
+    "POS",
+    "NEG",
+    "NEU"
+  ],
+  "env": {
+    "python": "3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]",
+    "sklearn": "1.7.1",
+    "joblib": "1.5.1",
+    "pandas": "2.3.2",
+    "numpy": "2.3.2"
+  },
+  "seed": 42,
+  "args": {
+    "input": "annotation\\sample_data\\final_dataset.csv",
+    "use_splits": true,
+    "output_dir": "models\\baseline_chargram",
+    "train_ratio": 0.8,
+    "val_ratio": 0.1,
+    "test_ratio": 0.1,
+    "seed": 42,
+    "ngram_min": 3,
+    "ngram_max": 5,
+    "min_df": 2,
+    "class_weight": "balanced",
+    "class_weight_json": null,
+    "max_iter": 200,
+    "group_column": null,
+    "calibrate": "none",
+    "calibrate_cv_folds": 0,
+    "group_stratified": false,
+    "resample": "none",
+    "resample_ratio": 1.0,
+    "normalize_all": false,
+    "norm_nfc": false,
+    "norm_whitespace": false,
+    "norm_punct": false,
+    "norm_elongation": false,
+    "norm_emoji": null,
+    "norm_zero_width": false,
+    "norm_khmer_digits": null,
+    "norm_khmer_punct": false,
+    "norm_diacritics_reorder": false,
+    "norm_latin_action": null,
+    "norm_latin_threshold": null,
+    "normalization_config": {
+      "nfc": false,
+      "whitespace": false,
+      "punct": false,
+      "elongation": false,
+      "emoji": "keep",
+      "remove_zero_width": false,
+      "khmer_digits": "keep",
+      "khmer_punct": false,
+      "diacritics_reorder": false,
+      "latin_action": "none",
+      "latin_threshold": 0.2
+    }
+  },
+  "calibration": {
+    "applied": false
+  },
+  "resampling": {
+    "applied": false
+  }
+}

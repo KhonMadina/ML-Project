@@ -357,9 +357,48 @@ def train_and_eval(
 ) -> None:
     ensure_dir(output_dir)
 
+    # Ensure the training split has at least two classes; if not, borrow samples from val/test.
+    train_labels = set(r.label for r in train_rows)
+    if len(train_labels) < 2:
+        all_labels = set(r.label for r in (train_rows + val_rows + test_rows))
+        if len(all_labels) < 2:
+            raise SystemExit("Dataset contains only one class across all splits; need at least two classes to train a classifier.")
+        print("Info: training split has <2 classes; moving examples from val/test to ensure at least two classes.")
+        for src in (val_rows, test_rows):
+            # iterate on a copy to allow removal
+            moved = False
+            for i, r in enumerate(list(src)):
+                if r.label not in train_labels:
+                    train_rows.append(r)
+                    del src[i]
+                    train_labels.add(r.label)
+                    moved = True
+                    if len(train_labels) >= 2:
+                        break
+            if len(train_labels) >= 2:
+                break
+        if len(train_labels) < 2:
+            raise SystemExit("Unable to construct a training split with at least two classes; provide more data or adjust split ratios.")
+
     X_train, y_train = to_xy(train_rows)
     X_val, y_val = to_xy(val_rows)
     X_test, y_test = to_xy(test_rows)
+
+    # If val or test splits are empty due to tiny dataset or prior adjustments, borrow minimal samples
+    # Prefer to keep at least 1 example for val and 1 for test when possible.
+    if len(X_val) == 0 and len(X_train) > 1:
+        # move one sample from training to validation for evaluation/calibration stability
+        r = train_rows.pop()
+        val_rows.append(r)
+        X_train, y_train = to_xy(train_rows)
+        X_val, y_val = to_xy(val_rows)
+        print("Info: moved one sample from train to val to avoid empty validation split.")
+    if len(X_test) == 0 and len(X_train) > 1:
+        r = train_rows.pop()
+        test_rows.append(r)
+        X_train, y_train = to_xy(train_rows)
+        X_test, y_test = to_xy(test_rows)
+        print("Info: moved one sample from train to test to avoid empty test split.")
 
     # Apply normalization if configured (config is passed via args_dict under 'normalization_config')
     norm_config = args_dict.get("normalization_config") if isinstance(args_dict, dict) else None
@@ -368,14 +407,46 @@ def train_and_eval(
         X_val = normalize_corpus(X_val, norm_config)      # type: ignore
         X_test = normalize_corpus(X_test, norm_config)    # type: ignore
 
+    # Validate dataset size and adapt min_df for tiny training sets to avoid sklearn error:
+    # "ValueError: max_df corresponds to < documents than min_df"
+    n_docs = len(X_train)
+    if n_docs == 0:
+        raise SystemExit("Empty training split; provide more data or adjust split ratios.")
+    eff_min_df = int(min_df)
+    if n_docs < eff_min_df:
+        print(f"Info: reducing min_df from {eff_min_df} to {max(1, n_docs)} for {n_docs} training documents.")
+        eff_min_df = max(1, n_docs)
+
+    # Adapt n-gram range to the observed text lengths to avoid empty vocabularies
+    max_len = max((len(t) for t in X_train), default=0)
+    if max_len == 0:
+        raise SystemExit("Training texts are empty after preprocessing; cannot build features. Provide non-empty texts or disable aggressive normalization.")
+    eff_ng_min = max(1, min(ngram_min, max_len))
+    eff_ng_max = max(eff_ng_min, min(ngram_max, max_len))
+
     vectorizer = TfidfVectorizer(
         analyzer="char",
-        ngram_range=(ngram_min, ngram_max),
-        min_df=min_df,
+        ngram_range=(eff_ng_min, eff_ng_max),
+        min_df=eff_min_df,
         strip_accents=None,
         lowercase=False,
     )
-    Xtr = vectorizer.fit_transform(X_train)
+    try:
+        Xtr = vectorizer.fit_transform(X_train)
+    except ValueError as e:
+        msg = str(e)
+        if "After pruning, no terms remain" in msg or "empty vocabulary" in msg:
+            print("Info: fallback vectorizer configuration due to tiny corpus; using char n-grams (1,3) with min_df=1.")
+            vectorizer = TfidfVectorizer(
+                analyzer="char",
+                ngram_range=(1, min(3, max_len)),
+                min_df=1,
+                strip_accents=None,
+                lowercase=False,
+            )
+            Xtr = vectorizer.fit_transform(X_train)
+        else:
+            raise
 
     # Optional resampling on training set only
     resampling_info: Dict[str, object] = {"applied": False}
@@ -412,20 +483,21 @@ def train_and_eval(
         max_iter=max_iter,
         n_jobs=None,
         class_weight=class_weight_param,
-        multi_class="auto",
         solver="lbfgs",
         random_state=seed,
     )
     clf.fit(Xtr, y_train)
 
     # Evaluate on val and test, with optional calibration
-    Xv = vectorizer.transform(X_val)
-    Xt = vectorizer.transform(X_test)
+    Xv = vectorizer.transform(X_val) if len(X_val) > 0 else None
+    Xt = vectorizer.transform(X_test) if len(X_test) > 0 else None
 
     model_for_eval = clf
     calibration_info: Dict[str, object] = {"applied": False}
     if calibrate == "temperature":
         try:
+            if Xv is None or len(y_val) == 0:
+                raise ValueError("No validation data available for temperature scaling")
             ts = TemperatureScaledModel(clf)
             ts.fit(Xv, y_val)
             model_for_eval = ts
@@ -444,6 +516,8 @@ def train_and_eval(
                     model_for_eval = calibrator
                     calibration_info = {"applied": True, "method": calibrate, "cv_folds": int(calibrate_cv_folds)}
                 else:
+                    if Xv is None or len(y_val) == 0:
+                        raise ValueError("No validation data for calibration in prefit mode")
                     calibrator = CalibratedClassifierCV(base_estimator=clf, method=method, cv="prefit")
                     calibrator.fit(Xv, y_val)
                     model_for_eval = calibrator
@@ -459,9 +533,25 @@ def train_and_eval(
         cm = confusion_matrix(y, yp, labels=["POS", "NEG", "NEU"]).tolist()
         return {"accuracy": acc, "f1_macro": f1m, "report": report, "confusion": cm}
 
+    # Build metrics with safe handling for possibly empty val/test splits
+    if Xv is not None and len(y_val) > 0:
+        val_metrics = eval_split(Xv, y_val, "val")
+    else:
+        val_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
+
+    if Xt is not None and len(y_test) > 0:
+        test_metrics = eval_split(Xt, y_test, "test")
+    else:
+        test_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
+
+    # Remove non-serializable objects from args (e.g., tracker instance)
+    safe_args = dict(args_dict)
+    if isinstance(safe_args.get("_tracker", None), object):
+        safe_args.pop("_tracker", None)
+
     metrics = {
-        "val": eval_split(Xv, y_val, "val"),
-        "test": eval_split(Xt, y_test, "test"),
+        "val": val_metrics,
+        "test": test_metrics,
         "params": {
             "ngram_range": [ngram_min, ngram_max],
             "min_df": min_df,
@@ -478,7 +568,7 @@ def train_and_eval(
         "label_order": ["POS", "NEG", "NEU"],
         "env": get_env_metadata(),
         "seed": seed,
-        "args": args_dict,
+        "args": safe_args,
         "calibration": calibration_info,
         "resampling": resampling_info,
     }
@@ -559,13 +649,19 @@ def main() -> None:
     ap.add_argument("--resample", choices=["none", "undersample", "oversample"], default="none", help="Optionally apply class resampling on the training set")
     ap.add_argument("--resample_ratio", type=float, default=1.0, help="Resampling ratio; for oversample targets ~max_count*ratio; for undersample targets ~min_count*ratio")
 
-    # Normalization flags
+    # Normalization flags (aligned with text_normalization.build_norm_config_from_args)
     ap.add_argument("--normalize_all", action="store_true", help="Enable a default Khmer/social text normalization pipeline")
     ap.add_argument("--norm_nfc", action="store_true", help="Apply Unicode NFC normalization")
     ap.add_argument("--norm_whitespace", action="store_true", help="Collapse whitespace and trim")
     ap.add_argument("--norm_punct", action="store_true", help="Normalize punctuation variants and compress repeats")
     ap.add_argument("--norm_elongation", action="store_true", help="Compress elongated character runs (>2 -> 2)")
     ap.add_argument("--norm_emoji", choices=["keep", "remove", "map"], default=None, help="Emoji handling mode: keep/remove/map-to-token")
+    ap.add_argument("--norm_zero_width", action="store_true", help="Remove zero-width characters (ZWSP, ZWJ, ZWNJ, BOM)")
+    ap.add_argument("--norm_khmer_digits", choices=["keep", "map"], default=None, help="Khmer digit handling: keep as-is or map to ASCII digits")
+    ap.add_argument("--norm_khmer_punct", action="store_true", help="Normalize Khmer punctuation to ASCII equivalents and compress iteration marks")
+    ap.add_argument("--norm_diacritics_reorder", action="store_true", help="Reorder combining diacritics into canonical order after NFC")
+    ap.add_argument("--norm_latin_action", choices=["none", "tag", "strip"], default=None, help="How to handle high Latin code-switching: none/tag/strip")
+    ap.add_argument("--norm_latin_threshold", type=float, default=None, help="Threshold (0-1) of Latin letters to trigger latin_action when enabled")
 
     args = ap.parse_args()
 
@@ -641,6 +737,12 @@ def main() -> None:
         "norm_punct": bool(args.norm_punct),
         "norm_elongation": bool(args.norm_elongation),
         "norm_emoji": args.norm_emoji if args.norm_emoji is not None else None,
+        "norm_zero_width": bool(getattr(args, "norm_zero_width", False)),
+        "norm_khmer_digits": args.norm_khmer_digits if getattr(args, "norm_khmer_digits", None) is not None else None,
+        "norm_khmer_punct": bool(getattr(args, "norm_khmer_punct", False)),
+        "norm_diacritics_reorder": bool(getattr(args, "norm_diacritics_reorder", False)),
+        "norm_latin_action": args.norm_latin_action if getattr(args, "norm_latin_action", None) is not None else None,
+        "norm_latin_threshold": float(args.norm_latin_threshold) if getattr(args, "norm_latin_threshold", None) is not None else None,
         "normalization_config": norm_config,
         "_tracker": tracker,
     }

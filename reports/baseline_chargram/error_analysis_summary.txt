@@ -1,0 +1,18 @@
+Total: 15
+Misclassified: 6
+Accuracy: 0.6000
+F1_macro: 0.5945
+
+Calibration (ECE/MCE) with 15 bins:
+  ECE: 0.2258
+  MCE: 0.9667
+
+Per-class F1 and support:
+  POS: f1=0.6667 support=5.0
+  NEG: f1=0.5455 support=5.0
+  NEU: f1=0.5714 support=5.0
+
+Confusion matrix (rows=true, cols=pred; order=POS,NEG,NEU):
+  POS:	[4, 1, 0]
+  NEG:	[2, 3, 0]
+  NEU:	[1, 2, 2]

@@ -371,7 +371,62 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--seed", default=42, help="Random seed for splitting")
     pc.set_defaults(func=run_combine)
 
+    ps = sub.add_parser("split", help="Generate stratified (or group-aware) splits from a finalized dataset CSV (id,text,label[,group])")
+    ps.add_argument("--input", required=True, help="Path to finalized dataset CSV (columns: id,text,label[,group])")
+    ps.add_argument("--group_aware_splits", action="store_true", help="Use group-aware splits when exporting (requires group column in data and numpy/sklearn)")
+    ps.add_argument("--train-ratio", default=0.8, type=float)
+    ps.add_argument("--val-ratio", default=0.1, type=float)
+    ps.add_argument("--test-ratio", default=0.1, type=float)
+    ps.add_argument("--seed", default=42, help="Random seed for splitting")
+    ps.set_defaults(func=run_split)
+
     return p
+
+
+# Utilities to read a finalized dataset CSV (id,text,label[,group])
+
+def read_final_dataset(path: Path) -> List[FinalItem]:
+    rows: List[FinalItem] = []
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            raise SystemExit("Empty CSV or missing header")
+        fields = set(reader.fieldnames)
+        required = {"id", "text", "label"}
+        if not required.issubset(fields):
+            raise SystemExit(f"Final dataset missing required columns {required}. Found {reader.fieldnames}")
+        has_group = "group" in fields
+        for r in reader:
+            iid = str(r.get("id", "")).strip()
+            text = str(r.get("text", ""))
+            label = str(r.get("label", "")).strip().upper()
+            grp = str(r.get("group", "")).strip() if has_group else None
+            if not iid or not label:
+                continue
+            rows.append(FinalItem(id=iid, text=text, label=label, group=(grp if grp else None)))
+    if not rows:
+        raise SystemExit("No rows found in finalized dataset")
+    return rows
+
+
+def run_split(args: argparse.Namespace) -> None:
+    input_path = Path(args.input)
+    rows = read_final_dataset(input_path)
+    train_ratio = float(args.train_ratio)
+    val_ratio = float(args.val_ratio)
+    test_ratio = float(args.test_ratio)
+
+    if getattr(args, "group_aware_splits", False):
+        train, val, test = group_aware_split(rows, train_ratio, val_ratio, test_ratio, seed=int(args.seed))
+    else:
+        train, val, test = stratified_split(rows, train_ratio, val_ratio, test_ratio, seed=int(args.seed))
+
+    base = input_path.parent
+    write_csv(base / "final_train.csv", train)
+    write_csv(base / "final_val.csv", val)
+    write_csv(base / "final_test.csv", test)
+    print(f"Splits written: {base / 'final_train.csv'}, {base / 'final_val.csv'}, {base / 'final_test.csv'}")
+    print(f"Split sizes: train={len(train)}, val={len(val)}, test={len(test)}")
 
 
 def main(argv: Optional[List[str]] = None) -> None:

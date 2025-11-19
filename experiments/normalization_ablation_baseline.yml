@@ -1,0 +1,31 @@
+experiment_name: "norm_ablation_baseline"
+tracking: "mlflow"          # none|mlflow|wandb
+mlflow_experiment: "khmer_norm_ablation"
+
+base:
+  script: "modeling/train_baseline.py"
+  input: "annotation/sample_data/final_dataset.csv"
+  use_splits: true
+  output_root: "runs/norm_ablation_baseline"
+
+  fixed:
+    train_ratio: 0.8
+    val_ratio: 0.1
+    test_ratio: 0.1
+    ngram_min: 3
+    ngram_max: 5
+    min_df: 2
+    max_iter: 200
+    class_weight: "balanced"
+    calibrate: "none"
+    resample: "none"
+    seed: 123
+
+# Grid encodes normalization ablations
+# Each combination becomes one MLflow run with full normalization flags logged by the script.
+
+grid:
+  normalize_all: [true]
+  norm_khmer_digits: ["keep", "map"]
+  norm_khmer_punct: [false, true]
+  norm_emoji: ["keep", "map"]

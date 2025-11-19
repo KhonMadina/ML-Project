@@ -1,0 +1,28 @@
+experiment_name: "calibration_baseline"
+tracking: "mlflow"
+mlflow_experiment: "khmer_calibration"
+
+base:
+  script: "modeling/train_baseline.py"
+  input: "annotation/sample_data/final_dataset.csv"
+  use_splits: true
+  output_root: "runs/calibration_baseline"
+
+  fixed:
+    train_ratio: 0.8
+    val_ratio: 0.1
+    test_ratio: 0.1
+    ngram_min: 3
+    ngram_max: 5
+    min_df: 2
+    max_iter: 200
+    class_weight: "balanced"
+    resample: "none"
+    seed: 123
+    normalize_all: true
+
+# Grid over calibration methods and CV folds
+
+grid:
+  calibrate: ["none", "platt", "isotonic", "temperature"]
+  calibrate_cv_folds: [0, 5]
