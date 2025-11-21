@@ -32,8 +32,8 @@ from typing import Dict, List
 import sys
 
 try:
-    import torch
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification
+    import torch # type: ignore
+    from transformers import AutoTokenizer, AutoModelForSequenceClassification # type: ignore
 except Exception as e:
     raise SystemExit(
         "Missing dependency. Install with: pip install transformers torch\n"

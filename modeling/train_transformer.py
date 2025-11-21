@@ -60,7 +60,9 @@ except Exception:
     np = None
 
 try:
-    from transformers import (
+    # transformers and evaluate are optional runtime dependencies; add type ignores
+    # so static analyzers (e.g., Pylance/mypy) don't error when they are missing
+    from transformers import (  # type: ignore[import]
         AutoTokenizer,
         AutoModelForSequenceClassification,
         Trainer,
@@ -68,7 +70,7 @@ try:
         DataCollatorWithPadding,
         set_seed,
     )
-    import evaluate
+    import evaluate  # type: ignore[import]
 except Exception as e:
     raise SystemExit(
         "Missing dependency. Install with: pip install transformers datasets accelerate evaluate torch\n"
@@ -175,7 +177,7 @@ def to_dataset(rows: List[Row], tokenizer, max_length: int, norm_cfg: Optional[D
         "text": texts,
     }
     try:
-        from datasets import Dataset
+        from datasets import Dataset # type: ignore
         return Dataset.from_dict(data)
     except Exception as e:
         raise SystemExit("datasets package is required: pip install datasets")
