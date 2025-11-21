@@ -157,8 +157,14 @@ def to_dataset(rows: List[Row], tokenizer, max_length: int, norm_cfg: Optional[D
         t = r.text
         if norm_cfg:
             t = normalize_text(t, norm_cfg)
+        # Validate label to avoid passing invalid targets (e.g., -1) into the model
+        if r.label not in LABEL2ID:
+            raise ValueError(
+                f"Unknown label '{r.label}' for id={r.id}. "
+                f"Expected one of {list(LABEL2ID.keys())}."
+            )
         texts.append(t)
-        labels.append(LABEL2ID.get(r.label, -1))
+        labels.append(LABEL2ID[r.label])
         ids.append(r.id)
     enc = tokenizer(texts, truncation=True, padding=False, max_length=max_length)
     data = {
