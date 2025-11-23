@@ -40,6 +40,8 @@ except Exception as e:
         f"Underlying import error: {e}"
     )
 
+from .utils.device import get_device
+
 try:
     import pandas as pd  # type: ignore
 except Exception:
@@ -55,14 +57,15 @@ except Exception:
 from .text_normalization import load_norm_config, normalize_text
 
 
-def load_model(model_dir: Path):
+def load_model(model_dir: Path, prefer_device: str = "auto", cuda_device: int | None = None):
     try:
         tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
         model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
     except Exception as e:
         raise SystemExit(f"Failed to load model/tokenizer from {model_dir}: {e}")
     norm_cfg = load_norm_config(model_dir)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev_ctx = get_device(prefer_device, cuda_device)
+    device = dev_ctx.device
     model.to(device)
     model.eval()
     # Label mapping
@@ -183,10 +186,14 @@ def main() -> None:
     ap.add_argument("--text", help="Single input text to classify")
     ap.add_argument("--input_csv", help="CSV with columns: id,text[,label]")
     ap.add_argument("--output_csv", help="Where to write predictions CSV for batch mode")
+    # Device args
+    ap.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="Device preference: auto picks CUDA if safe, else CPU")
+    ap.add_argument("--cuda_device", type=int, default=None, help="CUDA device index when using --device cuda/auto")
     args = ap.parse_args()
 
     model_dir = Path(args.model_dir)
-    tokenizer, model, norm_cfg, labels, device = load_model(model_dir)
+    tokenizer, model, norm_cfg, labels, device = load_model(model_dir, args.device, args.cuda_device)
+    print(f"Using device: {device}")
 
     if args.text:
         t = normalize_text(args.text, norm_cfg)

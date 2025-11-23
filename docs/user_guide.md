@@ -31,14 +31,14 @@ Optional tracking tools:
 
 Most training scripts share common flags:
 
-- `--tracking {none,mlflow,wandb}` (default: `mlflow`)
+- `--tracking {none,mlflow,wandb}` (pass explicitly; some scripts default to `none`)
 - `--experiment_name` (run name)
 - `--mlflow_tracking_uri`, `--mlflow_experiment`
 - `--wandb_project`, `--wandb_entity`, `--wandb_mode`
 - `--config` (optional YAML with experiment parameters)
 - `--seed` (default: 42 or 123 depending on script)
 
-Artifacts (metrics, models, vectorizers/tokenizers, confusion matrices, config snapshots) are written under `--output_dir` and logged to the selected tracker.
+Artifacts (metrics, models, vectorizers/tokenizers, confusion matrices, config snapshots) are written under `--output_dir` and logged to the selected tracker. If not specified, tracking may be disabled (e.g., transformers script defaults to `none`), so pass `--tracking mlflow` explicitly when needed.
 
 Example:
 
@@ -230,6 +230,7 @@ Outputs:
 - (Recommended) `normalization.json`: snapshot of normalization flags.
 
 ### 7.2 Using Custom Tokenizers with Transformers
+Note: The current train_transformer.py does not expose a `--tokenizer_path` flag. The following pattern shows how it can be integrated if added.
 
 Once `modeling/train_transformer.py` accepts `--tokenizer_path`, you can load a custom tokenizer:
 
@@ -239,7 +240,7 @@ from transformers import AutoTokenizer
 custom_tok = AutoTokenizer.from_pretrained("tokenizers/unigram_kh_16k", use_fast=True)
 ```
 
-In CLI form (once supported):
+In CLI form (if/when supported):
 
 ```bash
 python modeling/train_transformer.py \

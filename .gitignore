@@ -75,3 +75,51 @@ htmlcov/
 
 # Local config overrides
 config.local.*
+
+# Type checking / linters
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Virtualenv/packaging extras
+pip-wheel-metadata/
+
+# Test tooling
+.tox/
+.nox/
+.hypothesis/
+.benchmarks/
+
+# Coverage reports
+coverage.xml
+
+# Sphinx/Docs build artifacts
+docs/_build/
+site/
+
+# Python profiler outputs
+prof/
+*.prof
+*.pstats
+
+# SQLite and local DBs
+*.sqlite
+*.sqlite3
+*.db
+
+# Local tool settings
+.python-version
+ .pylintrc
+.pre-commit-config.yaml
+
+# Miscellaneous
+*.bak    
+*.orig
+modeling/utils/__pycache__/__init__.cpython-313.pyc
+annotation/__pycache__/adjudicate.cpython-313.pyc
+reports/baseline_chargram/error_analysis_metrics.json
+*/__pycache__/text_normalization.cpython-313.pyc
+modeling/__pycache__/text_normalization.cpython-313.pyc
+modeling/__pycache__/text_normalization.cpython-313.pyc
+modeling/__pycache__/__init__.cpython-313.pyc

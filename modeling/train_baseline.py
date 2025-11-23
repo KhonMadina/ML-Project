@@ -41,6 +41,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
+# Data loading and splitting utilities
+from .data import (
+    Row,
+    read_csv_rows,
+    stratified_split,
+    group_aware_split,
+    group_stratified_split,
+    to_xy,
+)
+
 # Experiment utilities for reproducibility and tracking
 from .utils.experiment import Config as ExpConfig, prepare_experiment
 
@@ -51,6 +61,7 @@ from .text_normalization import (
     normalize_corpus,
 )
 from .calibration_utils import TemperatureScaledModel
+from .eval import evaluate_classification, LABEL_ORDER_DEFAULT
 
 try:
     import pandas as pd  # type: ignore
@@ -91,187 +102,6 @@ try:
 except Exception:
     # sklearn.externals.joblib is deprecated; require joblib
     raise SystemExit("Missing dependency joblib. Install with: pip install joblib")
-
-
-@dataclass
-class Row:
-    id: str
-    text: str
-    label: str
-    group: Optional[str] = None
-
-
-def read_csv_rows(path: Path, group_col: Optional[str] = None) -> List[Row]:
-    """Read rows from CSV, optionally extracting a group column for group-aware splits."""
-    if pd is not None:
-        df = pd.read_csv(path, encoding="utf-8")
-        required = {"id", "text", "label"}
-        if not required.issubset(df.columns):
-            raise ValueError(f"CSV missing required columns {required}. Got {list(df.columns)}")
-        rows: List[Row] = []
-        for _, r in df.iterrows():
-            group_val = None
-            if group_col and group_col in df.columns:
-                gv = r[group_col]
-                group_val = None if (gv is None or (isinstance(gv, float) and pd.isna(gv))) else str(gv)
-            rows.append(Row(str(r["id"]), str(r["text"]), str(r["label"]).upper(), group_val))
-        return rows
-    # Fallback to csv module
-    rows2: List[Row] = []
-    with path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        required = {"id", "text", "label"}
-        if not required.issubset(set(reader.fieldnames or [])):
-            raise ValueError(f"CSV missing required columns {required}. Got {reader.fieldnames}")
-        for r in reader:
-            group_val = None
-            if group_col and group_col in (reader.fieldnames or []):
-                gv = r.get(group_col)
-                group_val = str(gv) if gv is not None and str(gv).strip() != "" else None
-            rows2.append(Row(str(r["id"]), str(r["text"]), str(r["label"]).upper(), group_val))
-    return rows2
-
-
-def stratified_split(rows: List[Row], train_ratio: float, val_ratio: float, test_ratio: float, seed: int = 42) -> Tuple[List[Row], List[Row], List[Row]]:
-    assert 0 < train_ratio < 1 and 0 <= val_ratio < 1 and 0 <= test_ratio < 1
-    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
-        raise ValueError("train_ratio + val_ratio + test_ratio must equal 1.0")
-    random.seed(seed)
-    by_label: Dict[str, List[Row]] = defaultdict(list)
-    for r in rows:
-        by_label[r.label].append(r)
-    train: List[Row] = []
-    val: List[Row] = []
-    test: List[Row] = []
-    for lbl, items in by_label.items():
-        items = items.copy()
-        random.shuffle(items)
-        n = len(items)
-        n_train = int(n * train_ratio)
-        n_val = int(n * val_ratio)
-        n_test = n - n_train - n_val
-        train.extend(items[:n_train])
-        val.extend(items[n_train:n_train + n_val])
-        test.extend(items[n_train + n_val:])
-    return train, val, test
-
-
-def group_aware_split(rows: List[Row], train_ratio: float, val_ratio: float, test_ratio: float, seed: int = 42) -> Tuple[List[Row], List[Row], List[Row]]:
-    """Split by groups using GroupShuffleSplit to avoid leakage. Not strictly stratified.
-    Uses a two-stage split: train vs temp, then temp -> val/test.
-    """
-    assert 0 < train_ratio < 1 and 0 <= val_ratio < 1 and 0 <= test_ratio < 1
-    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
-        raise ValueError("train_ratio + val_ratio + test_ratio must equal 1.0")
-    if np is None:
-        raise SystemExit("NumPy is required for group-aware split. Install with: pip install numpy")
-
-    X = np.arange(len(rows))
-    y = np.array([r.label for r in rows])  # not used by GroupShuffleSplit, but kept for clarity
-    groups = np.array([r.group if r.group is not None else f"__nogroup_{i}" for i, r in enumerate(rows)])
-
-    gss1 = GroupShuffleSplit(n_splits=1, test_size=(val_ratio + test_ratio), random_state=seed)
-    train_idx, temp_idx = next(gss1.split(X, y, groups))
-
-    # Compute proportion of test within temp
-    temp_size = val_ratio + test_ratio
-    test_within_temp = (test_ratio / temp_size) if temp_size > 0 else 0.0
-
-    gss2 = GroupShuffleSplit(n_splits=1, test_size=test_within_temp, random_state=seed + 1)
-    val_idx, test_idx = next(gss2.split(X[temp_idx], y[temp_idx], groups[temp_idx]))
-
-    # Map indices back
-    val_idx = temp_idx[val_idx]
-    test_idx = temp_idx[test_idx]
-
-    train_rows = [rows[i] for i in train_idx]
-    val_rows = [rows[i] for i in val_idx]
-    test_rows = [rows[i] for i in test_idx]
-    return train_rows, val_rows, test_rows
-
-
-def group_stratified_split(rows: List[Row], train_ratio: float, val_ratio: float, test_ratio: float, seed: int = 42) -> Tuple[List[Row], List[Row], List[Row]]:
-    """Approximate group-aware stratified split.
-    Assign entire groups to splits to avoid leakage while approximating label distribution targets.
-    Heuristic: greedy assignment minimizing L1 distance to target label counts.
-    """
-    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
-        raise ValueError("train_ratio + val_ratio + test_ratio must equal 1.0")
-
-    # Collect groups and per-group label counts
-    groups: Dict[str, List[Row]] = {}
-    for i, r in enumerate(rows):
-        g = r.group if r.group is not None else f"__nogroup_{i}"
-        groups.setdefault(g, []).append(r)
-
-    total_label_counts: Dict[str, int] = {}
-    for r in rows:
-        total_label_counts[r.label] = total_label_counts.get(r.label, 0) + 1
-
-    def target_counts(ratio: float) -> Dict[str, float]:
-        return {lbl: total_label_counts.get(lbl, 0) * ratio for lbl in total_label_counts}
-
-    targets = {
-        "train": target_counts(train_ratio),
-        "val": target_counts(val_ratio),
-        "test": target_counts(test_ratio),
-    }
-
-    # Current counts per split
-    cur = {"train": {lbl: 0 for lbl in total_label_counts},
-           "val": {lbl: 0 for lbl in total_label_counts},
-           "test": {lbl: 0 for lbl in total_label_counts}}
-
-    # Deterministic order: by group size desc, then name asc, with seeded shuffle for ties
-    rng = random.Random(seed)
-    items = list(groups.items())
-    items.sort(key=lambda kv: (-len(kv[1]), kv[0]))
-
-    assign: Dict[str, str] = {}
-
-    def label_counts_for_group(grows: List[Row]) -> Dict[str, int]:
-        d: Dict[str, int] = {}
-        for r in grows:
-            d[r.label] = d.get(r.label, 0) + 1
-        return d
-
-    for g, grows in items:
-        gc = label_counts_for_group(grows)
-        # Evaluate cost for assigning to each split
-        best_split = None
-        best_cost = None
-        for sp in ["train", "val", "test"]:
-            cost = 0.0
-            for lbl, tgt in targets[sp].items():
-                after = cur[sp].get(lbl, 0) + gc.get(lbl, 0)
-                cost += abs(after - tgt)
-            if best_cost is None or cost < best_cost:
-                best_cost = cost
-                best_split = sp
-        assign[g] = best_split or "train"
-        # Update counts
-        for lbl, c in gc.items():
-            cur[assign[g]][lbl] = cur[assign[g]].get(lbl, 0) + c
-
-    train_rows = []
-    val_rows = []
-    test_rows = []
-    for g, grows in groups.items():
-        sp = assign[g]
-        if sp == "train":
-            train_rows.extend(grows)
-        elif sp == "val":
-            val_rows.extend(grows)
-        else:
-            test_rows.extend(grows)
-
-    return train_rows, val_rows, test_rows
-
-
-def to_xy(rows: List[Row]) -> Tuple[List[str], List[str]]:
-    X = [r.text for r in rows]
-    y = [r.label for r in rows]
-    return X, y
 
 
 def ensure_dir(p: Path) -> None:
@@ -525,22 +355,18 @@ def train_and_eval(
             except Exception as e:
                 print(f"Warning: calibration failed: {e}")
 
-    def eval_split(X, y, split_name: str) -> Dict[str, object]:
-        yp = model_for_eval.predict(X)
-        acc = accuracy_score(y, yp)
-        f1m = f1_score(y, yp, average="macro")
-        report = classification_report(y, yp, output_dict=True, zero_division=0)
-        cm = confusion_matrix(y, yp, labels=["POS", "NEG", "NEU"]).tolist()
-        return {"accuracy": acc, "f1_macro": f1m, "report": report, "confusion": cm}
-
     # Build metrics with safe handling for possibly empty val/test splits
     if Xv is not None and len(y_val) > 0:
-        val_metrics = eval_split(Xv, y_val, "val")
+        y_val_pred = model_for_eval.predict(Xv)
+        val_split_metrics = evaluate_classification(y_val, y_val_pred, labels=LABEL_ORDER_DEFAULT)
+        val_metrics: Dict[str, object] = val_split_metrics.to_dict()
     else:
         val_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
 
     if Xt is not None and len(y_test) > 0:
-        test_metrics = eval_split(Xt, y_test, "test")
+        y_test_pred = model_for_eval.predict(Xt)
+        test_split_metrics = evaluate_classification(y_test, y_test_pred, labels=LABEL_ORDER_DEFAULT)
+        test_metrics: Dict[str, object] = test_split_metrics.to_dict()
     else:
         test_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
 

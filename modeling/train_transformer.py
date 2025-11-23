@@ -41,6 +41,14 @@ from typing import Dict, List, Optional, Tuple
 import os
 import sys
 
+# Shared data and evaluation utilities
+from .data import (
+    Row,
+    read_csv_rows,
+    stratified_split,
+)
+from .eval import LABEL_ORDER_DEFAULT
+
 # Hard-disable Weights & Biases for non-interactive demo runs so transformers Trainer
 # does not try to initialize wandb or prompt for credentials.
 os.environ.setdefault("WANDB_DISABLED", "true")
@@ -48,6 +56,10 @@ os.environ.setdefault("WANDB_MODE", "disabled")
 
 # Experiment utilities for reproducibility and tracking
 from .utils.experiment import Config as ExpConfig, prepare_experiment, set_global_seed
+
+# Torch for device selection; guard CUDA access via utils.device
+import torch
+from .utils.device import get_device
 
 try:
     import pandas as pd  # type: ignore
@@ -83,72 +95,9 @@ from .text_normalization import (
     normalize_text,
 )
 
-LABELS = ["POS", "NEG", "NEU"]
+LABELS = LABEL_ORDER_DEFAULT
 LABEL2ID = {l: i for i, l in enumerate(LABELS)}
 ID2LABEL = {i: l for l, i in LABEL2ID.items()}
-
-
-@dataclass
-class Row:
-    id: str
-    text: str
-    label: str
-    group: Optional[str] = None
-
-
-def read_csv_rows(path: Path, group_col: Optional[str] = None) -> List[Row]:
-    if pd is not None:
-        df = pd.read_csv(path, encoding="utf-8")
-        required = {"id", "text", "label"}
-        if not required.issubset(df.columns):
-            raise ValueError(f"CSV missing required columns {required}. Got {list(df.columns)}")
-        rows: List[Row] = []
-        for _, r in df.iterrows():
-            group_val = None
-            if group_col and group_col in df.columns:
-                gv = r[group_col]
-                group_val = None if (gv is None or (isinstance(gv, float) and pd.isna(gv))) else str(gv)
-            rows.append(Row(str(r["id"]), str(r["text"]), str(r["label"]).upper(), group_val))
-        return rows
-    # Fallback slow path (should rarely be used for transformers)
-    import csv
-    rows2: List[Row] = []
-    with path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        required = {"id", "text", "label"}
-        if not required.issubset(set(reader.fieldnames or [])):
-            raise ValueError(f"CSV missing required columns {required}. Got {reader.fieldnames}")
-        for r in reader:
-            group_val = None
-            if group_col and group_col in (reader.fieldnames or []):
-                gv = r.get(group_col)
-                group_val = str(gv) if gv is not None and str(gv).strip() != "" else None
-            rows2.append(Row(str(r["id"]), str(r["text"]), str(r["label"]).upper(), group_val))
-    return rows2
-
-
-def stratified_split(rows: List[Row], train_ratio: float, val_ratio: float, test_ratio: float, seed: int = 42) -> Tuple[List[Row], List[Row], List[Row]]:
-    assert 0 < train_ratio < 1 and 0 <= val_ratio < 1 and 0 <= test_ratio < 1
-    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
-        raise ValueError("train_ratio + val_ratio + test_ratio must equal 1.0")
-    random.seed(seed)
-    from collections import defaultdict
-    by_label: Dict[str, List[Row]] = defaultdict(list)
-    for r in rows:
-        by_label[r.label].append(r)
-    train: List[Row] = []
-    val: List[Row] = []
-    test: List[Row] = []
-    for _, items in by_label.items():
-        items = items.copy()
-        random.shuffle(items)
-        n = len(items)
-        n_train = int(n * train_ratio)
-        n_val = int(n * val_ratio)
-        train.extend(items[:n_train])
-        val.extend(items[n_train:n_train + n_val])
-        test.extend(items[n_train + n_val:])
-    return train, val, test
 
 
 def to_dataset(rows: List[Row], tokenizer, max_length: int, norm_cfg: Optional[Dict[str, object]]):
@@ -200,6 +149,11 @@ def main() -> None:
     ap.add_argument("--grad_accum", type=int, default=1)
     ap.add_argument("--fp16", action="store_true")
 
+    # Device control
+    # Default to CPU to avoid issues on machines with old/broken CUDA drivers; "auto" still prefers CUDA when safe.
+    ap.add_argument("--device", type=str, default="cpu", choices=["auto", "cpu", "cuda"], help="Device preference: auto picks CUDA if safe, else CPU")
+    ap.add_argument("--cuda_device", type=int, default=None, help="CUDA device index when using --device cuda/auto")
+
     # Splits and reproducibility
     ap.add_argument("--train_ratio", type=float, default=0.8)
     ap.add_argument("--val_ratio", type=float, default=0.1)
@@ -233,6 +187,10 @@ def main() -> None:
     ap.add_argument("--norm_latin_threshold", type=float, default=None, help="Threshold (0-1) of Latin letters to trigger latin_action when enabled")
 
     args = ap.parse_args()
+
+    # Resolve device safely (CUDA if healthy, else CPU)
+    dev_ctx = get_device(args.device, args.cuda_device)
+    print(f"Using device: {dev_ctx.device}")
 
     # Prepare experiment (seed + tracking)
     exp_cfg = ExpConfig.from_yaml(args.config)
@@ -279,12 +237,33 @@ def main() -> None:
     ds_test = to_dataset(test_rows, tokenizer, args.max_length, norm_cfg)
 
     # Model
-    model = AutoModelForSequenceClassification.from_pretrained(
-        args.model_name,
-        num_labels=len(LABELS),
-        id2label=ID2LABEL,
-        label2id=LABEL2ID,
-    )
+    # OSError 1455 ("The paging file is too small for this operation to complete") is a Windows
+    # system-level out-of-memory error when allocating tensors for a large checkpoint. We
+    # explicitly load on CPU with low_cpu_mem_usage and surface a clearer message with
+    # mitigation guidance.
+    try:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            args.model_name,
+            num_labels=len(LABELS),
+            id2label=ID2LABEL,
+            label2id=LABEL2ID,
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True,
+        )
+    except OSError as e:
+        msg = str(e).lower()
+        if "1455" in str(e) or "paging file is too small" in msg or "out of memory" in msg:
+            raise SystemExit(
+                "Failed to load transformer weights due to insufficient system memory (likely Windows error 1455).\n"
+                "The selected model checkpoint is too large for available RAM + page file.\n"
+                "Mitigations:\n"
+                "  - Use a smaller model (e.g., 'prajjwal1/bert-tiny', 'distilbert-base-multilingual-cased').\n"
+                "  - Close other memory-intensive applications and retry.\n"
+                "  - Increase the Windows paging file size.\n"
+                "  - Reduce sequence length (--max_length) and/or batch size (--batch_size).\n"
+                f"Original error: {e}"
+            )
+        raise
 
     # Metrics function
     metric_acc = evaluate.load("accuracy")
@@ -299,6 +278,14 @@ def main() -> None:
 
     collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
+    # Determine precision from device context
+    if dev_ctx.is_cuda:
+        safe_fp16 = bool(args.fp16)
+    else:
+        if args.fp16:
+            print("Warning: fp16 requested but no usable CUDA device found; disabling fp16.")
+        safe_fp16 = False
+
     # Use a minimal set of TrainingArguments fields compatible with a wide range of transformers versions.
     # More advanced options like evaluation_strategy/save_strategy/load_best_model_at_end can be added
     # if your installed transformers version supports them.
@@ -310,9 +297,10 @@ def main() -> None:
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         weight_decay=args.weight_decay,
-        fp16=bool(args.fp16),
+        fp16=safe_fp16,
         seed=args.seed,
         logging_steps=50,
+        no_cuda=(not dev_ctx.is_cuda),
     )
 
     trainer = Trainer(
@@ -370,6 +358,8 @@ def main() -> None:
             "max_length": int(args.max_length),
             "grad_accum": int(args.grad_accum),
             "fp16": bool(args.fp16),
+            "device": args.device,
+            "cuda_device": int(args.cuda_device) if args.cuda_device is not None else None,
             "seed": int(args.seed),
             "train_ratio": float(args.train_ratio),
             "val_ratio": float(args.val_ratio),
