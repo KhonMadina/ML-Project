@@ -58,18 +58,21 @@ python modeling/train_baseline.py \
 ```
 
 Key options:
-- `--use_splits` to respect pre-defined train/val/test splits.
-- `--calibrate {none,platt,isotonic,temperature}` for probability calibration.
-- `--resample {none,undersample,oversample}` for class imbalance handling.
+- `--use_splits` to respect pre-defined train/val/test splits located next to the input CSV.
+- `--group_column` and `--group_stratified` for group-aware splitting without leakage (see tests/test_group_splits.py).
+- `--calibrate {none,platt,isotonic,temperature}` and `--calibrate_cv_folds` for probability calibration.
+- `--resample {none,undersample,oversample}` and `--resample_ratio` for class imbalance handling.
 
 Outputs (under `--output_dir`):
-- `metrics.json`, `confusion_matrix.csv`
+- `metrics.json` (includes accuracy, macro-F1, and calibration metrics when enabled)
+- `confusion_matrix.csv`
 - Serialized vectorizer/model
-- `experiment_config.json` and `normalization.json`
+- `experiment_config.json` (config snapshot) and `normalization.json` (applied normalization flags)
 
 ---
 
 ### 3. Train a Transformer Model
+>>> Ensure hyperparameters and flags reflect current script expectations; mention optional tokenizer integration in user guide.
 
 Train a multilingual transformer (e.g., XLM-RoBERTa) with the same dataset and normalization:
 
@@ -109,7 +112,7 @@ Artifacts:
 - `tokenizer_report.json`: coverage and sequence-length statistics
 - `normalization.json`: normalization flags used during training
 
-Custom tokenizers can be plugged into transformer experiments via an optional `--tokenizer_path` argument (see `docs/user_guide.md`).
+Custom tokenizers can be plugged into transformer experiments via an optional `--tokenizer_path` argument (see `docs/user_guide.md`). When used, copy `tokenizer_report.json` into the run directory for tracking.
 
 ---
 
@@ -137,6 +140,7 @@ For more details (including group-based analysis and error inspection), see the 
 ---
 
 ## Experiments & Reproducibility
+>>> Point to concrete configs present in experiments/ and confirm MLflow default under ./mlruns.
 
 Core experiment grids are defined under `experiments/` and run with:
 
@@ -149,7 +153,7 @@ Main grids:
 - `experiments/calibration_grid_baseline.yml`: calibration methods and cross-validation strategies.
 - `experiments/tokenizer_transformer_grid.yml`: transformer backbones, Latin handling, and tokenizer variants.
 
-Each run logs configuration, metrics, and artifacts to MLflow (by default) under `./mlruns`.
+Each run logs configuration, metrics, and artifacts to MLflow (by default) under `./mlruns`. Use `mlflow ui --backend-store-uri ./mlruns` to browse results.
 
 ---
 
@@ -168,9 +172,9 @@ Each run logs configuration, metrics, and artifacts to MLflow (by default) under
 
 ## Documentation
 
-- **User Guide:** `docs/user_guide.md`
-- **Research Guide:** `docs/research_guide.md`
-- **Annotation Workflow:** `annotation/README.md`, `annotation/guidelines.md`
+- User Guide: `docs/user_guide.md`
+- Research Guide: `docs/research_guide.md`
+- Annotation Workflow: `annotation/README.md`, `annotation/guidelines.md`
 
 These documents provide the recommended commands and protocols for both day-to-day usage and thesis-level research.
 
