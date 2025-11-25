@@ -49,11 +49,6 @@ from .data import (
 )
 from .eval import LABEL_ORDER_DEFAULT
 
-# Hard-disable Weights & Biases for non-interactive demo runs so transformers Trainer
-# does not try to initialize wandb or prompt for credentials.
-os.environ.setdefault("WANDB_DISABLED", "true")
-os.environ.setdefault("WANDB_MODE", "disabled")
-
 # Experiment utilities for reproducibility and tracking
 from .utils.experiment import Config as ExpConfig, prepare_experiment, set_global_seed
 
@@ -88,6 +83,12 @@ except Exception as e:
         "Missing dependency. Install with: pip install transformers datasets accelerate evaluate torch\n"
         f"Underlying import error: {e}"
     )
+
+# Prefer explicit Trainer.report_to over global WANDB_DISABLED env flags for
+# future compatibility with transformers v5+. Keep the existing env defaults as
+# a safe fallback but discourage new usage.
+os.environ.setdefault("WANDB_DISABLED", "true")
+os.environ.setdefault("WANDB_MODE", "disabled")
 
 from .text_normalization import (
     build_norm_config_from_args,
@@ -247,7 +248,7 @@ def main() -> None:
             num_labels=len(LABELS),
             id2label=ID2LABEL,
             label2id=LABEL2ID,
-            torch_dtype=torch.float32,
+            dtype=torch.float32,
             low_cpu_mem_usage=True,
         )
     except OSError as e:
@@ -289,6 +290,18 @@ def main() -> None:
     # Use a minimal set of TrainingArguments fields compatible with a wide range of transformers versions.
     # More advanced options like evaluation_strategy/save_strategy/load_best_model_at_end can be added
     # if your installed transformers version supports them.
+    # Configure Trainer logging/backend behavior explicitly instead of relying on
+    # WANDB_DISABLED environment variables. This is the recommended pattern in
+    # transformers >= 4.40 and future-proofs for v5.
+    report_to: str | list[str] | None
+    if exp_cfg.tracking == "wandb":
+        report_to = ["wandb"]
+    elif exp_cfg.tracking in {"mlflow", "none"}:
+        # We log to mlflow separately via our experiment utils; disable HF integrations.
+        report_to = "none"
+    else:
+        report_to = "none"
+
     training_args = TrainingArguments(
         output_dir=str(out_dir),
         num_train_epochs=args.epochs,
@@ -300,7 +313,9 @@ def main() -> None:
         fp16=safe_fp16,
         seed=args.seed,
         logging_steps=50,
-        no_cuda=(not dev_ctx.is_cuda),
+        max_grad_norm=1.0,
+        use_cpu=not dev_ctx.is_cuda,
+        report_to=report_to,
     )
 
     trainer = Trainer(
@@ -308,7 +323,7 @@ def main() -> None:
         args=training_args,
         train_dataset=ds_train,
         eval_dataset=ds_val,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
     )
