@@ -5,67 +5,182 @@
   <title>Khmer Sentiment Analysis Demo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    :root {
+      --bg: #f5f5f7;
+      --card-bg: #ffffff;
+      --text-main: #111827;
+      --text-muted: #6b7280;
+      --border-subtle: #e5e7eb;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #b91c1c;
+      --pos: #16a34a;
+      --neg: #dc2626;
+      --neu: #2563eb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       margin: 0;
       padding: 0;
-      background: #f5f5f7;
-      color: #222;
+      background: var(--bg);
+      color: var(--text-main);
     }
+
     header {
       background: #1f2937;
       color: #fff;
-      padding: 1rem 1.5rem;
+      padding: 1rem 1.5rem 0.85rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.4);
     }
     header h1 {
-      margin: 0 0 0.25rem 0;
+      margin: 0 0 0.15rem 0;
       font-size: 1.4rem;
+      letter-spacing: 0.01em;
     }
     header p {
       margin: 0;
       font-size: 0.9rem;
       opacity: 0.85;
     }
+    .header-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.7);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #9ca3af;
+    }
+    .status-dot.ok {
+      background: #22c55e;
+    }
+    .status-dot.err {
+      background: #ef4444;
+    }
+
     main {
-      max-width: 960px;
-      margin: 1.5rem auto 2rem;
+      max-width: 1180px;
+      margin: 1.3rem auto 2.2rem;
       padding: 0 1rem;
     }
-    .card {
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1);
-      padding: 1.25rem 1.5rem;
-      margin-bottom: 1.25rem;
+
+    .section-title {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      margin: 0 0 0.3rem;
     }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+      padding: 1.15rem 1.35rem;
+      margin-bottom: 1rem;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+
+    .card h2 {
+      margin: 0 0 0.2rem;
+      font-size: 1.0rem;
+    }
+
+    .card-subtitle {
+      margin: 0 0 0.55rem;
+      font-size: 0.83rem;
+      color: var(--text-muted);
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.5fr);
+      gap: 1rem;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
     .input-row {
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
     }
+
     textarea {
       width: 100%;
-      min-height: 90px;
+      min-height: 100px;
       resize: vertical;
       padding: 0.75rem;
       border-radius: 8px;
       border: 1px solid #d1d5db;
       font-size: 0.95rem;
       font-family: inherit;
+      background: #f9fafb;
     }
+
     label {
       font-weight: 600;
       font-size: 0.9rem;
     }
+
     .controls {
       display: flex;
       flex-wrap: wrap;
       gap: 0.75rem;
       align-items: center;
-      margin-top: 0.75rem;
+      margin-top: 0.15rem;
     }
+
+    .control-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    input[type="number"],
+    input[type="range"],
+    select {
+      font-size: 0.85rem;
+      font-family: inherit;
+      border-radius: 6px;
+      border: 1px solid #d1d5db;
+      padding: 0.25rem 0.35rem;
+      background: #f9fafb;
+    }
+
+    input[type="range"] {
+      width: 130px;
+      padding: 0;
+    }
+
     button {
-      background: #2563eb;
+      background: var(--primary);
       border: none;
       color: #fff;
       padding: 0.55rem 1.1rem;
@@ -75,51 +190,159 @@
       display: inline-flex;
       align-items: center;
       gap: 0.35rem;
+      transition: background 0.15s ease, transform 0.05s ease;
     }
     button:hover {
-      background: #1d4ed8;
+      background: var(--primary-hover);
+    }
+    button:active {
+      transform: translateY(0.5px);
     }
     button:disabled {
       background: #9ca3af;
       cursor: not-allowed;
+      transform: none;
     }
+
+    .btn-secondary {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    .btn-secondary:hover {
+      background: #d1d5db;
+    }
+
     .small {
       font-size: 0.8rem;
       color: #6b7280;
     }
+
+    .muted {
+      color: var(--text-muted);
+    }
+
+    .pill-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      background: #f3f4f6;
+      font-size: 0.78rem;
+      color: #4b5563;
+    }
+
+    .example-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.2rem;
+    }
+
+    .example-bar button {
+      font-size: 0.78rem;
+      padding: 0.3rem 0.7rem;
+      background: #e5e7eb;
+      color: #111827;
+    }
+    .example-bar button:hover {
+      background: #d1d5db;
+    }
+
+    .scenario-list {
+      margin-top: 0.5rem;
+      border-radius: 8px;
+      border: 1px dashed #e5e7eb;
+      padding: 0.45rem 0.6rem;
+      background: #f9fafb;
+    }
+    .scenario-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      padding: 0.3rem 0.35rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .scenario-item:hover {
+      background: #e5e7eb;
+    }
+    .scenario-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .scenario-desc {
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+
+    .error {
+      color: var(--danger);
+      font-size: 0.85rem;
+      margin-top: 0.4rem;
+    }
+
     .result-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1rem;
-      margin-top: 0.75rem;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.75rem;
+      margin-top: 0.5rem;
     }
+
+    .dual-model-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+
+    @media (max-width: 800px) {
+      .dual-model-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .subcard {
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      padding: 0.7rem 0.8rem;
+      background: #f9fafb;
+    }
+
     .badge {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.15rem 0.55rem;
       border-radius: 999px;
       font-size: 0.8rem;
       font-weight: 600;
+      letter-spacing: 0.02em;
     }
     .badge-pos { background: #ecfdf3; color: #166534; }
     .badge-neg { background: #fef2f2; color: #991b1b; }
     .badge-neu { background: #eff6ff; color: #1d4ed8; }
     .badge-set { background: #f5f3ff; color: #5b21b6; }
+    .badge-model { background: #eef2ff; color: #3730a3; }
+    .badge-ood-ok { background: #ecfdf3; color: #16a34a; }
+    .badge-ood-warn { background: #fef9c3; color: #854d0e; }
 
-    .prob-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.88rem;
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      font-size: 0.8rem;
+      color: #4b5563;
+      margin-top: 0.4rem;
+      align-items: center;
     }
-    .prob-table th,
-    .prob-table td {
-      padding: 0.2rem 0.35rem;
-      text-align: left;
-    }
+
     .prob-row {
       display: flex;
       align-items: center;
       gap: 0.4rem;
       margin-bottom: 0.25rem;
+      font-size: 0.85rem;
     }
     .prob-bar-bg {
       flex: 1;
@@ -131,21 +354,117 @@
     .prob-bar-fill {
       height: 100%;
       border-radius: 999px;
+      transition: width 0.2s ease;
     }
 
-    .meta-row {
+    .uncertainty-panel {
+      display: grid;
+      grid-template-columns: 1.3fr 1.2fr;
+      gap: 0.6rem;
+      margin-top: 0.45rem;
+    }
+    @media (max-width: 700px) {
+      .uncertainty-panel {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .gauge-wrapper {
       display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      font-size: 0.8rem;
-      color: #4b5563;
-      margin-top: 0.5rem;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .gauge-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+    .gauge-bg {
+      position: relative;
+      width: 100%;
+      height: 0.6rem;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #f97316 0%, #eab308 50%, #22c55e 100%);
+      overflow: hidden;
+    }
+    .gauge-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.4);
+      transform-origin: left;
+      transform: scaleX(0);
+      transition: transform 0.25s ease;
     }
 
-    .error {
-      color: #b91c1c;
-      font-size: 0.85rem;
-      margin-top: 0.4rem;
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-top: 0.45rem;
+    }
+
+    .collapsible {
+      margin-top: 0.35rem;
+      border-radius: 8px;
+      border: 1px dashed #e5e7eb;
+      padding: 0.4rem 0.55rem 0.55rem;
+      background: #f9fafb;
+    }
+
+    .collapsible-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      font-size: 0.82rem;
+      color: #4b5563;
+    }
+
+    .collapsible-body {
+      margin-top: 0.35rem;
+      font-size: 0.82rem;
+    }
+
+    pre {
+      margin: 0;
+      background: #f9fafb;
+      border-radius: 6px;
+      padding: 0.4rem 0.55rem;
+      font-size: 0.86rem;
+      white-space: pre-wrap;
+    }
+
+    .importance-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0.25rem 0 0;
+      font-size: 0.8rem;
+    }
+    .importance-item {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-bottom: 0.15rem;
+    }
+    .importance-bar {
+      flex: 1;
+      height: 0.3rem;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+    }
+    .importance-bar-fill {
+      height: 100%;
+    }
+
+    .divider {
+      margin: 0.9rem 0;
+      border: 0;
+      border-top: 1px solid #e5e7eb;
     }
 
     code {
@@ -154,77 +473,240 @@
       border-radius: 4px;
       font-size: 0.85rem;
     }
+
+    .inline-note {
+      font-size: 0.78rem;
+      color: #6b7280;
+      margin-top: 0.3rem;
+    }
+
+    .success-msg {
+      font-size: 0.8rem;
+      color: #15803d;
+      margin-top: 0.3rem;
+    }
+
+    .history-list {
+      list-style: none;
+      padding: 0;
+      margin: 0.35rem 0 0;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .history-item {
+      padding: 0.35rem 0.35rem;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+    .history-item:hover {
+      background: #e5e7eb;
+    }
+    .history-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+    }
+    .history-text {
+      font-size: 0.8rem;
+      color: #111827;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .history-meta {
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+
+    .legend-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0.3rem 0 0;
+      font-size: 0.78rem;
+      color: #4b5563;
+    }
+
+    .tau-sweep-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.4rem;
+      font-size: 0.78rem;
+    }
+    .tau-sweep-table th,
+    .tau-sweep-table td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0.2rem 0.25rem;
+      text-align: left;
+    }
+    .tau-sweep-row-highlight {
+      background: #eff6ff;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Khmer Sentiment Analysis Demo</h1>
-    <p>Enter Khmer text to see sentiment label, probabilities, and conformal prediction set.</p>
-  </header>
-  <main>
-    <section class="card">
-      <div class="input-row">
-        <label for="text">Input Khmer text</label>
-        <textarea id="text" placeholder="ឧទាហរណ៍៖ អរគុណច្រើន សេវាកម្មល្អបំផុត 🙄"></textarea>
-        <div class="controls">
-          <label class="small" for="tau">tau:</label>
-          <input type="number" id="tau" min="0" max="1" step="0.01" value="0.5" style="width:80px;padding:0.3rem;border-radius:6px;border:1px solid #d1d5db;"/>
-          <select id="modelType" style="padding:0.3rem;border-radius:6px;border:1px solid #d1d5db;">
-            <option value="baseline">Baseline (TF–IDF + LR)</option>
-            <option value="transformer">Transformer</option>
-          </select>
-          <label class="small">
-            <input type="checkbox" id="normalize" checked />
-            Normalize text
-          </label>
-          <button id="btnPredict">Predict sentiment</button>
-        </div>
-        <div class="error" id="error"></div>
+    <p>Research demo: baseline vs transformer models with conformal prediction sets and uncertainty metrics for Khmer sentiment (POS / NEG / NEU).</p>
+    <div class="header-row">
+      <div class="small">1) Enter Khmer text · 2) Choose model & τ · 3) Inspect prediction, prediction set, and uncertainty.</div>
+      <div class="status-pill" id="apiStatus">
+        <span class="status-dot" id="apiStatusDot"></span>
+        <span id="apiStatusText">Checking API...</span>
       </div>
-    </section>
+    </div>
+  </header>
 
-    <section class="card" id="resultCard" style="display:none;">
-      <h2 style="margin-top:0;font-size:1.05rem;">Prediction Result</h2>
-      <div class="result-grid">
-        <div>
-          <h3 style="font-size:0.95rem;margin-bottom:0.25rem;">Labels</h3>
-          <div id="predLabel"></div>
-          <div id="confSet" style="margin-top:0.35rem;"></div>
-          <div class="meta-row">
-            <div id="tauInfo"></div>
-            <div id="uncertaintyInfo"></div>
-            <div id="modelTypeInfo"></div>
+  <main>
+    <div class="main-grid">
+      <section class="card">
+        <div class="section-title">1. Input & settings</div>
+        <h2>Single-text prediction</h2>
+        <p class="card-subtitle">Enter one Khmer sentence and explore how model choice and the conformal threshold τ affect predictions and prediction sets.</p>
+
+        <div class="input-row">
+          <label for="text">Input Khmer text</label>
+          <textarea id="text" placeholder="ឧទាហរណ៍៖ អរគុណច្រើន"></textarea>
+
+          <div class="example-bar small">
+            <span class="muted">Quick examples:</span>
+            <button type="button" data-example="positive">Positive</button>
+            <button type="button" data-example="negative">Negative</button>
+            <button type="button" data-example="ambiguous">Ambiguous / sarcastic</button>
+            <button type="button" data-example="noisy">Noisy / code-switching</button>
+          </div>
+
+          <div class="scenario-list small">
+            <strong>Demo scenarios</strong>
+            <div id="scenarioContainer"></div>
+          </div>
+
+          <div class="controls small">
+            <div class="control-group">
+              <span class="pill-label">τ (conformal threshold)</span>
+              <input type="number" id="tau" min="0" max="1" step="0.01" value="0.5" style="width:80px;" />
+              <input type="range" id="tauSlider" min="0" max="1" step="0.01" value="0.5" />
+            </div>
+            <div class="control-group">
+              <label for="modelType">Model:</label>
+              <select id="modelType">
+                <option value="baseline">Baseline (TF–IDF + LR)</option>
+                <option value="transformer">Transformer</option>
+              </select>
+            </div>
+            <label class="control-group">
+              <input type="checkbox" id="normalize" checked />
+              <span>Normalize text</span>
+            </label>
+            <label class="control-group">
+              <input type="checkbox" id="compareBoth" />
+              <span>Compare both models</span>
+            </label>
+            <button id="btnPredict" type="button">
+              <span id="btnPredictLabel">Predict sentiment</span>
+            </button>
+            <button id="btnTauSweep" type="button" class="btn-secondary small">Sweep τ</button>
+          </div>
+
+          <p class="inline-note">Lower τ → larger prediction sets (more conservative). Higher τ → smaller sets (more decisive).</p>
+
+          <div class="error" id="error"></div>
+        </div>
+      </section>
+
+      <section class="card" id="resultCard" style="display:none;">
+        <div class="section-title">2. Model output & uncertainty</div>
+        <h2>Prediction result</h2>
+        <p class="card-subtitle">Inspect the predicted label, conformal prediction set, class probabilities, and uncertainty metrics. If comparison is enabled, baseline and transformer are shown side by side.</p>
+
+        <div id="singleModelContainer" class="result-grid" style="display:none;"></div>
+        <div id="dualModelContainer" class="dual-model-grid" style="display:none;"></div>
+
+        <div id="tauSweepContainer" class="small" style="margin-top:0.7rem; display:none;"></div>
+
+        <hr class="divider" />
+        <div class="toggle-row small">
+          <div>
+            <strong>Internal processing</strong> &mdash; what the model actually sees and uses.
           </div>
         </div>
-        <div>
-          <h3 style="font-size:0.95rem;margin-bottom:0.35rem;">Probabilities</h3>
-          <div id="probabilities"></div>
+
+        <div class="collapsible" id="normalizedCollapsible">
+          <div class="collapsible-header" data-target="normalizedBody">
+            <span>Normalized / preprocessed text</span>
+            <span class="muted" id="normalizedToggleLabel">Show</span>
+          </div>
+          <div class="collapsible-body" id="normalizedBody" style="display:none;">
+            <p class="small muted" style="margin-bottom:0.25rem;">This is the text actually sent to the model after cleaning and normalization.</p>
+            <pre id="normalizedText"></pre>
+          </div>
         </div>
-      </div>
-      <hr style="margin:0.9rem 0; border:0; border-top:1px solid #e5e7eb;" />
-      <h3 style="font-size:0.95rem;margin-bottom:0.35rem;">Internal processing</h3>
-      <p class="small" style="margin-bottom:0.25rem;">Normalized text used by the model:</p>
-      <pre id="normalizedText" style="background:#f9fafb;border-radius:8px;padding:0.6rem;font-size:0.9rem;white-space:pre-wrap;"></pre>
-      <h3 style="font-size:0.95rem;margin-bottom:0.35rem;">Top features (baseline)</h3>
-      <ul id="importanceList" class="small"></ul>
-    </section>
+
+        <div class="collapsible" id="importanceCollapsible">
+          <div class="collapsible-header" data-target="importanceBody">
+            <span>Top features (baseline model)</span>
+            <span class="muted" id="importanceToggleLabel">Show</span>
+          </div>
+          <div class="collapsible-body" id="importanceBody" style="display:none;">
+            <p class="small muted" style="margin-bottom:0.25rem;">Most influential features for the baseline TF&ndash;IDF + logistic regression classifier on this particular input.</p>
+            <ul id="importanceList" class="importance-list"></ul>
+          </div>
+        </div>
+
+        <div class="collapsible" id="legendCollapsible" style="margin-top:0.5rem;">
+          <div class="collapsible-header" data-target="legendBody">
+            <span>Legend & explanation</span>
+            <span class="muted" id="legendToggleLabel">Show</span>
+          </div>
+          <div class="collapsible-body" id="legendBody" style="display:none;">
+            <ul class="legend-list">
+              <li><strong>POS / NEG / NEU badges</strong> &mdash; sentiment classes (green = positive, red = negative, blue = neutral).</li>
+              <li><strong>Conformal prediction set</strong> &mdash; set of labels guaranteed to contain the true label with probability ≥ 1 − τ (on calibration data).</li>
+              <li><strong>Max class probability gauge</strong> &mdash; darker overlay shows how concentrated the model's belief is on its top class.</li>
+              <li><strong>Entropy</strong> &mdash; measures uncertainty over classes: low = confident, high = uncertain.</li>
+              <li><strong>Prediction set size</strong> &mdash; how many labels are in the conformal set (1 = very confident, 3 = very uncertain).</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <section class="card">
-      <h2 style="margin-top:0;font-size:1.0rem;">Batch prediction</h2>
-      <p class="small">Paste one text per line and click Predict Batch. Output will download as CSV.</p>
-      <textarea id="batchInput" placeholder="Line 1 text\nLine 2 text"></textarea>
+      <div class="section-title">3. Batch prediction</div>
+      <h2>Batch prediction & CSV export</h2>
+      <p class="card-subtitle">Paste one text per line. The current settings (model, τ, normalization) are applied to every line and the predictions are downloaded as a CSV file.</p>
+
+      <label for="batchInput" class="small" style="font-weight:600;">Batch input (one text per line)</label>
+      <textarea id="batchInput" placeholder="Line 1 text
+Line 2 text"></textarea>
       <div class="controls">
-        <button id="btnPredictBatch">Predict batch</button>
+        <button id="btnPredictBatch" type="button">Predict batch</button>
+        <button id="btnBatchSample" type="button" class="btn-secondary small">Paste sample batch</button>
       </div>
+      <p class="inline-note small" id="batchSettingsNote"></p>
+      <p class="inline-note small">Output columns: <code>text, normalized_text, pred_label, proba_POS, proba_NEG, proba_NEU, conformal_set, tau</code>. Prediction sets are encoded as <code>POS|NEG|NEU</code>.</p>
       <div class="error" id="batchError"></div>
+      <div class="success-msg" id="batchSuccess" style="display:none;"></div>
     </section>
 
     <section class="card">
-      <h2 style="margin-top:0;font-size:1.0rem;">API reference</h2>
-      <p class="small">The UI calls the FastAPI backend:</p>
+      <div class="section-title">4. Recent predictions</div>
+      <h2>History (last 5)</h2>
+      <p class="card-subtitle">Use this panel to revisit interesting examples quickly during a live demo.</p>
+      <ul id="historyList" class="history-list"></ul>
+      <p class="inline-note">Click a row to restore its input text and settings, then re-run the prediction.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-title">5. Programmatic access</div>
+      <h2>API reference</h2>
+      <p class="card-subtitle">The browser UI is a thin client over a FastAPI backend. Use the same endpoints in experiments or external systems.</p>
       <ul class="small">
         <li><code>GET /health</code> &rarr; status and model info.</li>
-        <li><code>GET /meta</code> &rarr; model information and labels, and supported model types.</li>
+        <li><code>GET /meta</code> &rarr; model information, label set, and supported model types.</li>
         <li><code>POST /predict</code> with JSON <code>{"text": "...", "model_type": "baseline|transformer", "tau": 0.5, "normalize": true}</code> &rarr; prediction, probabilities, conformal set, uncertainty, importance.</li>
         <li><code>POST /predict/batch</code> with JSON <code>[{"text": "...", "model_type": "...", "tau": 0.5, "normalize": true}]</code> &rarr; list of predictions.</li>
         <li>Interactive docs: <code>/docs</code></li>
@@ -233,73 +715,108 @@
   </main>
 
   <script>
+    // --- DOM elements ---
     const btn = document.getElementById('btnPredict');
+    const btnLabel = document.getElementById('btnPredictLabel');
     const textEl = document.getElementById('text');
     const errorEl = document.getElementById('error');
     const resultCard = document.getElementById('resultCard');
-    const predLabelEl = document.getElementById('predLabel');
-    const confSetEl = document.getElementById('confSet');
-    const probsEl = document.getElementById('probabilities');
-    const normEl = document.getElementById('normalizedText');
-    const tauInfoEl = document.getElementById('tauInfo');
-    const modelInfoEl = document.getElementById('modelInfo');
+
+    const singleModelContainer = document.getElementById('singleModelContainer');
+    const dualModelContainer = document.getElementById('dualModelContainer');
+    const tauSweepContainer = document.getElementById('tauSweepContainer');
+
     const tauEl = document.getElementById('tau');
+    const tauSliderEl = document.getElementById('tauSlider');
     const modelTypeEl = document.getElementById('modelType');
     const normalizeEl = document.getElementById('normalize');
-    const uncertaintyEl = document.getElementById('uncertaintyInfo');
-    const modelTypeInfoEl = document.getElementById('modelTypeInfo');
+    const compareBothEl = document.getElementById('compareBoth');
+    const btnTauSweep = document.getElementById('btnTauSweep');
+
+    const normEl = document.getElementById('normalizedText');
     const importanceEl = document.getElementById('importanceList');
+
+    const apiStatusDotEl = document.getElementById('apiStatusDot');
+    const apiStatusTextEl = document.getElementById('apiStatusText');
 
     const btnBatch = document.getElementById('btnPredictBatch');
     const batchInput = document.getElementById('batchInput');
     const batchError = document.getElementById('batchError');
+    const batchSuccess = document.getElementById('batchSuccess');
+    const batchSettingsNote = document.getElementById('batchSettingsNote');
+    const btnBatchSample = document.getElementById('btnBatchSample');
 
-    async function loadMeta() {
-      try {
-        const res = await fetch('/meta');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        const labels = (data.labels || []).join(', ');
-        if (Array.isArray(data.supported_model_types)) {
-          if (!data.supported_model_types.includes('transformer')) {
-            [...modelTypeEl.options].forEach(opt => {
-              if (opt.value === 'transformer') opt.disabled = true;
-            });
-          }
-          if (data.default_model_type) {
-            modelTypeEl.value = data.default_model_type;
-          }
-        }
-        if (typeof data.default_normalize === 'boolean') {
-          normalizeEl.checked = data.default_normalize;
-        }
-      } catch (e) {
-        modelInfoEl.textContent = 'Model: could not load metadata. Make sure the API is running.';
-      }
-    }
+    const normalizedBody = document.getElementById('normalizedBody');
+    const importanceBody = document.getElementById('importanceBody');
+    const legendBody = document.getElementById('legendBody');
+    const normalizedToggleLabel = document.getElementById('normalizedToggleLabel');
+    const importanceToggleLabel = document.getElementById('importanceToggleLabel');
+    const legendToggleLabel = document.getElementById('legendToggleLabel');
 
+    const scenarioContainer = document.getElementById('scenarioContainer');
+    const historyList = document.getElementById('historyList');
+
+    // --- History state ---
+    const predictionHistory = [];
+    const MAX_HISTORY = 5;
+
+    // --- Utility: sentiment badge ---
     function sentimentBadge(label) {
       const span = document.createElement('span');
       span.classList.add('badge');
-      if (label === 'POS') span.classList.add('badge-pos');
-      else if (label === 'NEG') span.classList.add('badge-neg');
+      const upper = (label || '').toUpperCase();
+      if (upper === 'POS') span.classList.add('badge-pos');
+      else if (upper === 'NEG') span.classList.add('badge-neg');
       else span.classList.add('badge-neu');
-      span.textContent = label;
+      span.textContent = upper || '?';
       return span;
     }
 
     function probColor(label) {
-      if (label === 'POS') return '#16a34a';
-      if (label === 'NEG') return '#dc2626';
-      if (label === 'NEU') return '#2563eb';
+      const upper = (label || '').toUpperCase();
+      if (upper === 'POS') return '#16a34a';
+      if (upper === 'NEG') return '#dc2626';
+      if (upper === 'NEU') return '#2563eb';
       return '#4b5563';
     }
 
+    // --- Uncertainty helpers ---
+    function entropyCategory(ent) {
+      if (ent == null || isNaN(ent)) return '';
+      if (ent < 0.5) return 'Low entropy (model is quite certain).';
+      if (ent < 1.0) return 'Medium entropy (moderately uncertain).';
+      return 'High entropy (very uncertain).';
+    }
+
+    function buildGauge(maxProba) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'gauge-wrapper';
+
+      const labelRow = document.createElement('div');
+      labelRow.className = 'gauge-label';
+      const p = (maxProba != null && !isNaN(maxProba)) ? (maxProba * 100).toFixed(1) + '%' : '?';
+      labelRow.innerHTML = `<span>Max class probability</span><span>${p}</span>`;
+
+      const gaugeBg = document.createElement('div');
+      gaugeBg.className = 'gauge-bg';
+      const fill = document.createElement('div');
+      fill.className = 'gauge-fill';
+      const frac = (maxProba != null && !isNaN(maxProba)) ? Math.max(0, Math.min(1, maxProba)) : 0;
+      fill.style.transform = `scaleX(${frac})`;
+      gaugeBg.appendChild(fill);
+
+      wrapper.appendChild(labelRow);
+      wrapper.appendChild(gaugeBg);
+      return wrapper;
+    }
+
+    // --- Render probabilities for one model ---
     function renderProbabilities(probabilities) {
-      probsEl.innerHTML = '';
-      const keys = Object.keys(probabilities).sort();
+      const container = document.createElement('div');
+      const probs = probabilities || {};
+      const keys = Object.keys(probs).sort();
       keys.forEach(k => {
-        const v = probabilities[k];
+        const v = probs[k];
         const label = k.replace('proba_', '').toUpperCase();
         const row = document.createElement('div');
         row.className = 'prob-row';
@@ -313,107 +830,386 @@
 
         const barFill = document.createElement('div');
         barFill.className = 'prob-bar-fill';
-        barFill.style.width = Math.round(v * 100) + '%';
+        barFill.style.width = Math.round((v || 0) * 100) + '%';
         barFill.style.background = probColor(label);
 
         const val = document.createElement('span');
-        val.style.width = '48px';
+        val.style.width = '52px';
         val.style.textAlign = 'right';
-        val.textContent = (v * 100).toFixed(1) + '%';
+        val.textContent = (v == null || isNaN(v)) ? '' : (v * 100).toFixed(1) + '%';
 
         barBg.appendChild(barFill);
         row.appendChild(name);
         row.appendChild(barBg);
         row.appendChild(val);
-        probsEl.appendChild(row);
+        container.appendChild(row);
       });
+      return container;
+    }
+
+    // --- Render importance list (baseline) ---
+    function renderImportance(importance) {
+      importanceEl.innerHTML = '';
+      if (!Array.isArray(importance) || !importance.length) return;
+
+      let maxAbs = 0;
+      importance.forEach(item => {
+        const w = typeof item.weight === 'number' ? item.weight : parseFloat(item.weight) || 0;
+        maxAbs = Math.max(maxAbs, Math.abs(w));
+      });
+      if (!maxAbs) maxAbs = 1;
+
+      importance.forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'importance-item';
+        const feature = document.createElement('span');
+        feature.textContent = item.feature;
+
+        const bar = document.createElement('div');
+        bar.className = 'importance-bar';
+        const barFill = document.createElement('div');
+        barFill.className = 'importance-bar-fill';
+        const w = typeof item.weight === 'number' ? item.weight : parseFloat(item.weight) || 0;
+        const frac = Math.min(1, Math.abs(w) / maxAbs);
+        barFill.style.width = (frac * 100).toFixed(1) + '%';
+        barFill.style.background = w >= 0 ? 'rgba(22, 163, 74, 0.85)' : 'rgba(220, 38, 38, 0.85)';
+        bar.appendChild(barFill);
+
+        const val = document.createElement('span');
+        val.textContent = (typeof item.weight === 'number' ? item.weight.toFixed(4) : item.weight);
+        val.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+        val.style.fontSize = '0.75rem';
+        val.style.color = '#4b5563';
+
+        li.appendChild(feature);
+        li.appendChild(bar);
+        li.appendChild(val);
+        importanceEl.appendChild(li);
+      });
+    }
+
+    // --- Render a single model's prediction block ---
+    function renderModelBlock(data, labelTitle) {
+      const outer = document.createElement('div');
+      outer.className = 'subcard';
+
+      const headingRow = document.createElement('div');
+      headingRow.style.display = 'flex';
+      headingRow.style.alignItems = 'center';
+      headingRow.style.justifyContent = 'space-between';
+      headingRow.style.gap = '0.4rem';
+
+      const left = document.createElement('div');
+      const h3 = document.createElement('h3');
+      h3.style.fontSize = '0.9rem';
+      h3.style.margin = '0 0 0.25rem';
+      h3.textContent = labelTitle || 'Model';
+      left.appendChild(h3);
+
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-model';
+      badge.textContent = 'Model: ' + (data.model_type || 'baseline');
+
+      headingRow.appendChild(left);
+      headingRow.appendChild(badge);
+      outer.appendChild(headingRow);
+
+      // Predicted label
+      const predRow = document.createElement('div');
+      predRow.className = 'small';
+      predRow.style.marginTop = '0.3rem';
+      predRow.appendChild(document.createTextNode('Predicted label: '));
+      predRow.appendChild(sentimentBadge(data.pred_label));
+      outer.appendChild(predRow);
+
+      // Conformal set
+      const cs = Array.isArray(data.conformal_set) ? data.conformal_set : [];
+      const setWrapper = document.createElement('div');
+      setWrapper.style.display = 'flex';
+      setWrapper.style.flexWrap = 'wrap';
+      setWrapper.style.gap = '0.25rem';
+      setWrapper.style.alignItems = 'center';
+      setWrapper.style.marginTop = '0.3rem';
+
+      const setLabel = document.createElement('span');
+      setLabel.className = 'small';
+      setLabel.textContent = 'Conformal prediction set:';
+      setWrapper.appendChild(setLabel);
+
+      if (cs.length) {
+        cs.forEach(lbl => {
+          const b = sentimentBadge(lbl);
+          setWrapper.appendChild(b);
+        });
+      } else {
+        const empty = document.createElement('span');
+        empty.className = 'badge badge-set';
+        empty.textContent = 'No set returned';
+        setWrapper.appendChild(empty);
+      }
+
+      outer.appendChild(setWrapper);
+
+      const setNote = document.createElement('div');
+      setNote.className = 'small muted';
+      const setSize = data.pred_set_size != null ? data.pred_set_size : cs.length;
+      if (cs.length === 0) {
+        setNote.textContent = 'No labels in the set (unexpected; check configuration).';
+      } else if (cs.length === 1) {
+        setNote.textContent = 'Singleton set (high confidence at this τ). Set size = ' + setSize + '.';
+      } else if (cs.length === 3) {
+        setNote.textContent = 'All labels in the set (model is very uncertain for this input). Set size = ' + setSize + '.';
+      } else {
+        setNote.textContent = 'Intermediate set size = ' + setSize + ' label(s).';
+      }
+      outer.appendChild(setNote);
+
+      // Meta: tau, uncertainty
+      const metaRow = document.createElement('div');
+      metaRow.className = 'meta-row';
+
+      const tauInfo = document.createElement('span');
+      const tauVal = data.tau != null && !isNaN(data.tau) ? data.tau.toFixed(3) : '?';
+      tauInfo.textContent = 'τ = ' + tauVal;
+      metaRow.appendChild(tauInfo);
+
+      const uncSpan = document.createElement('span');
+      if (typeof data.max_proba === 'number' || typeof data.entropy === 'number') {
+        const mp = data.max_proba != null ? (data.max_proba * 100).toFixed(1) + '%' : '?';
+        const ent = data.entropy != null ? data.entropy.toFixed(3) : '?';
+        const size = setSize;
+        uncSpan.textContent = `Max p = ${mp}, entropy = ${ent}, set size = ${size}`;
+      }
+      metaRow.appendChild(uncSpan);
+
+      outer.appendChild(metaRow);
+
+      // Uncertainty visualization
+      const uncPanel = document.createElement('div');
+      uncPanel.className = 'uncertainty-panel';
+
+      const gaugeBox = document.createElement('div');
+      gaugeBox.appendChild(buildGauge(data.max_proba));
+      uncPanel.appendChild(gaugeBox);
+
+      const entropyBox = document.createElement('div');
+      entropyBox.className = 'small';
+      const entVal = document.createElement('div');
+      entVal.textContent = 'Entropy: ' + (data.entropy != null && !isNaN(data.entropy) ? data.entropy.toFixed(3) : '?');
+      const entCat = document.createElement('div');
+      entCat.className = 'muted';
+      entCat.textContent = entropyCategory(data.entropy);
+      entropyBox.appendChild(entVal);
+      entropyBox.appendChild(entCat);
+      uncPanel.appendChild(entropyBox);
+
+      outer.appendChild(uncPanel);
+
+      // Probabilities
+      const probHeader = document.createElement('h3');
+      probHeader.style.fontSize = '0.9rem';
+      probHeader.style.margin = '0.5rem 0 0.25rem';
+      probHeader.textContent = 'Class probabilities';
+      outer.appendChild(probHeader);
+      outer.appendChild(renderProbabilities(data.probabilities || {}));
+
+      return outer;
+    }
+
+    // --- Single or dual model result rendering ---
+    function renderResults(dataArray, context) {
+      if (!Array.isArray(dataArray) || !dataArray.length) return;
+
+      const compare = compareBothEl.checked && dataArray.length > 1;
+      singleModelContainer.innerHTML = '';
+      dualModelContainer.innerHTML = '';
+
+      if (compare) {
+        singleModelContainer.style.display = 'none';
+        dualModelContainer.style.display = 'grid';
+        dataArray.forEach(d => {
+          const title = (d.model_type || '').toLowerCase() === 'transformer'
+            ? 'Transformer model'
+            : 'Baseline (TF–IDF + LR)';
+          dualModelContainer.appendChild(renderModelBlock(d, title));
+        });
+      } else {
+        dualModelContainer.style.display = 'none';
+        singleModelContainer.style.display = 'grid';
+        const d = dataArray[0];
+        const title = (d.model_type || '').toLowerCase() === 'transformer'
+          ? 'Transformer model'
+          : 'Baseline (TF–IDF + LR)';
+        singleModelContainer.appendChild(renderModelBlock(d, title));
+      }
+
+      // Internal processing (normalized text and importance) from the first model
+      const main = dataArray[0];
+      normEl.textContent = main.normalized_text || '';
+      renderImportance(main.importance);
+
+      resultCard.style.display = 'block';
+
+      // Add to history (only for standard predict, not tau-sweep)
+      if (!context || context !== 'tau-sweep') {
+        addToHistory({
+          text: textEl.value.trim(),
+          tau: parseFloat(tauEl.value),
+          model: modelTypeEl.value,
+          normalize: normalizeEl.checked,
+          compare: compareBothEl.checked,
+          labels: dataArray.map(d => d.pred_label),
+          setSizes: dataArray.map(d => (d.pred_set_size != null ? d.pred_set_size : (d.conformal_set || []).length))
+        });
+      }
+    }
+
+    // --- History handling ---
+    function addToHistory(entry) {
+      if (!entry || !entry.text) return;
+      predictionHistory.unshift({
+        ...entry,
+        timestamp: new Date().toISOString()
+      });
+      if (predictionHistory.length > MAX_HISTORY) {
+        predictionHistory.length = MAX_HISTORY;
+      }
+      renderHistory();
+    }
+
+    function renderHistory() {
+      historyList.innerHTML = '';
+      predictionHistory.forEach((h, idx) => {
+        const li = document.createElement('li');
+        li.className = 'history-item';
+
+        const mainRow = document.createElement('div');
+        mainRow.className = 'history-main';
+
+        const txt = document.createElement('span');
+        txt.className = 'history-text';
+        txt.textContent = h.text.length > 70 ? h.text.slice(0, 67) + '...' : h.text;
+
+        const metaShort = document.createElement('span');
+        metaShort.className = 'history-meta';
+        const tauVal = isNaN(h.tau) ? '?' : h.tau.toFixed(2);
+        const labelSummary = (h.labels || []).filter(Boolean).join(' / ');
+        metaShort.textContent = `${h.compare ? 'both models' : h.model} · τ=${tauVal} · ${labelSummary}`;
+
+        mainRow.appendChild(txt);
+        mainRow.appendChild(metaShort);
+
+        const metaRow = document.createElement('div');
+        metaRow.className = 'history-meta';
+        metaRow.textContent = `normalize=${h.normalize ? 'on' : 'off'}, set size(s)=${(h.setSizes || []).join('/')}`;
+
+        li.appendChild(mainRow);
+        li.appendChild(metaRow);
+
+        li.addEventListener('click', () => {
+          textEl.value = h.text;
+          tauEl.value = isNaN(h.tau) ? '0.50' : h.tau.toFixed(2);
+          tauSliderEl.value = isNaN(h.tau) ? '0.5' : h.tau.toString();
+          modelTypeEl.value = h.model;
+          normalizeEl.checked = h.normalize;
+          compareBothEl.checked = h.compare;
+          updateBatchSettingsNote();
+          predict();
+        });
+
+        historyList.appendChild(li);
+      });
+    }
+
+    // --- API calls ---
+    async function callPredictOnce(payload) {
+      const res = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        throw new Error('Prediction failed with status ' + res.status);
+      }
+      return res.json();
     }
 
     async function predict() {
       errorEl.textContent = '';
+      batchSuccess.style.display = 'none';
+      tauSweepContainer.style.display = 'none';
       const text = textEl.value.trim();
       if (!text) {
         errorEl.textContent = 'Please enter some Khmer text.';
         return;
       }
+
+      const tauVal = parseFloat(tauEl.value);
+      const basePayload = {
+        text,
+        tau: isNaN(tauVal) ? 0.5 : tauVal,
+        model_type: modelTypeEl.value,
+        normalize: normalizeEl.checked
+      };
+
       btn.disabled = true;
-      btn.textContent = 'Predicting...';
+      btnLabel.textContent = 'Predicting...';
+
       try {
-        const res = await fetch('/predict', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text,
-            tau: parseFloat(tauEl.value),
-            model_type: modelTypeEl.value,
-            normalize: normalizeEl.checked
-          })
-        });
-        if (!res.ok) {
-          throw new Error('Prediction failed with status ' + res.status);
-        }
-        const data = await res.json();
+        const results = [];
+        if (compareBothEl.checked) {
+          const payloadBaseline = { ...basePayload, model_type: 'baseline' };
+          const payloadTransformer = { ...basePayload, model_type: 'transformer' };
 
-        predLabelEl.innerHTML = '';
-        predLabelEl.appendChild(document.createTextNode('Predicted label: '));
-        predLabelEl.appendChild(sentimentBadge(data.pred_label));
+          const [resBaseline, resTransformer] = await Promise.all([
+            callPredictOnce(payloadBaseline).catch(e => ({ error: e })),
+            callPredictOnce(payloadTransformer).catch(e => ({ error: e }))
+          ]);
 
-        confSetEl.innerHTML = '';
-        const setSpan = document.createElement('span');
-        setSpan.classList.add('badge', 'badge-set');
-        setSpan.textContent = 'Prediction set: [' + (data.conformal_set || []).join(', ') + ']';
-        confSetEl.appendChild(setSpan);
+          if (resBaseline.error && resTransformer.error) {
+            throw new Error('Prediction failed for both models. Check backend logs.');
+          }
+          if (!resBaseline.error) results.push(resBaseline);
+          if (!resTransformer.error) results.push(resTransformer);
 
-        tauInfoEl.textContent = 'Threshold tau = ' + (data.tau != null ? data.tau.toFixed(3) : '?');
-
-        if (typeof data.max_proba === 'number' || typeof data.entropy === 'number') {
-          const mp = data.max_proba != null ? (data.max_proba * 100).toFixed(1) + '%' : '?';
-          const ent = data.entropy != null ? data.entropy.toFixed(3) : '?';
-          const setSize = data.pred_set_size != null ? data.pred_set_size : (data.conformal_set || []).length;
-          uncertaintyEl.textContent = `Max p = ${mp}, entropy = ${ent}, set size = ${setSize}`;
+          if (!results.length) {
+            throw new Error('No successful prediction returned.');
+          }
         } else {
-          uncertaintyEl.textContent = '';
+          const res = await callPredictOnce(basePayload);
+          results.push(res);
         }
 
-        modelTypeInfoEl.textContent = 'Model: ' + (data.model_type || 'baseline');
-
-        renderProbabilities(data.probabilities || {});
-
-        normEl.textContent = data.normalized_text || '';
-
-        importanceEl.innerHTML = '';
-        if (Array.isArray(data.importance) && data.importance.length) {
-          data.importance.forEach(item => {
-            const li = document.createElement('li');
-            const w = typeof item.weight === 'number' ? item.weight.toFixed(4) : item.weight;
-            li.textContent = `${item.feature}: ${w}`;
-            importanceEl.appendChild(li);
-          });
-        }
-
-        resultCard.style.display = 'block';
+        renderResults(results, 'standard');
       } catch (e) {
         console.error(e);
-        errorEl.textContent = e.message || 'Prediction failed.';
+        if (e instanceof TypeError) {
+          errorEl.textContent = 'Cannot reach API at /predict. Ensure the backend is running (e.g. run_demo_api.sh or Docker container).';
+        } else {
+          errorEl.textContent = e.message || 'Prediction failed.';
+        }
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Predict sentiment';
+        btnLabel.textContent = 'Predict sentiment';
       }
     }
 
     async function predictBatch() {
       batchError.textContent = '';
+      batchSuccess.style.display = 'none';
       const lines = (batchInput.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       if (!lines.length) {
         batchError.textContent = 'Please paste at least one line.';
         return;
       }
       btnBatch.disabled = true;
+      const oldLabel = btnBatch.textContent;
       btnBatch.textContent = 'Predicting...';
       try {
+        const tauVal = parseFloat(tauEl.value);
         const payload = lines.map(t => ({
           text: t,
-          tau: parseFloat(tauEl.value),
+          tau: isNaN(tauVal) ? 0.5 : tauVal,
           model_type: modelTypeEl.value,
           normalize: normalizeEl.checked
         }));
@@ -450,24 +1246,313 @@
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        batchSuccess.textContent = `Downloaded predictions.csv with ${data.length} row(s).`;
+        batchSuccess.style.display = 'block';
       } catch (e) {
         console.error(e);
-        batchError.textContent = e.message || 'Batch prediction failed.';
+        if (e instanceof TypeError) {
+          batchError.textContent = 'Cannot reach API at /predict/batch. Ensure the backend is running.';
+        } else {
+          batchError.textContent = e.message || 'Batch prediction failed.';
+        }
       } finally {
         btnBatch.disabled = false;
-        btnBatch.textContent = 'Predict batch';
+        btnBatch.textContent = oldLabel;
       }
     }
 
+    // --- τ sweep ---
+    async function sweepTau() {
+      tauSweepContainer.style.display = 'none';
+      tauSweepContainer.innerHTML = '';
+      const text = textEl.value.trim();
+      if (!text) {
+        errorEl.textContent = 'Please enter some Khmer text before sweeping τ.';
+        return;
+      }
+      const model = modelTypeEl.value;
+      const normalize = normalizeEl.checked;
+      const currentTau = parseFloat(tauEl.value);
+      const tauGrid = [0.05, 0.1, 0.2, 0.4, 0.6, 0.8];
+
+      const rows = [];
+      try {
+        for (const t of tauGrid) {
+          const payload = {
+            text,
+            tau: t,
+            model_type: model,
+            normalize
+          };
+          const res = await callPredictOnce(payload);
+          rows.push({ tau: t, res });
+        }
+      } catch (e) {
+        console.error(e);
+        if (e instanceof TypeError) {
+          errorEl.textContent = 'Cannot reach API while sweeping τ. Ensure the backend is running.';
+        } else {
+          errorEl.textContent = e.message || 'τ sweep failed.';
+        }
+        return;
+      }
+
+      // Render table
+      const table = document.createElement('table');
+      table.className = 'tau-sweep-table';
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>τ</th><th>Pred label</th><th>Set</th><th>Set size</th><th>Max p</th><th>Entropy</th></tr>';
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+
+      rows.forEach(row => {
+        const { tau, res } = row;
+        const tr = document.createElement('tr');
+        const set = Array.isArray(res.conformal_set) ? res.conformal_set : [];
+        const setSize = res.pred_set_size != null ? res.pred_set_size : set.length;
+        const mp = res.max_proba != null && !isNaN(res.max_proba) ? (res.max_proba * 100).toFixed(1) + '%' : '';
+        const ent = res.entropy != null && !isNaN(res.entropy) ? res.entropy.toFixed(3) : '';
+
+        const tdTau = document.createElement('td');
+        tdTau.textContent = tau.toFixed(2);
+
+        const tdLabel = document.createElement('td');
+        tdLabel.textContent = res.pred_label || '';
+
+        const tdSet = document.createElement('td');
+        tdSet.textContent = set.join(', ');
+
+        const tdSize = document.createElement('td');
+        tdSize.textContent = String(setSize);
+
+        const tdMp = document.createElement('td');
+        tdMp.textContent = mp;
+
+        const tdEnt = document.createElement('td');
+        tdEnt.textContent = ent;
+
+        tr.appendChild(tdTau);
+        tr.appendChild(tdLabel);
+        tr.appendChild(tdSet);
+        tr.appendChild(tdSize);
+        tr.appendChild(tdMp);
+        tr.appendChild(tdEnt);
+
+        const cur = parseFloat(currentTau);
+        if (!isNaN(cur) && Math.abs(cur - tau) < 1e-6) {
+          tr.classList.add('tau-sweep-row-highlight');
+        }
+
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      tauSweepContainer.innerHTML = '<strong>τ sweep on current input</strong>: effect of τ on prediction set and uncertainty.';
+      tauSweepContainer.appendChild(table);
+      tauSweepContainer.style.display = 'block';
+
+      // Note: we do not update main result from sweep; it's a separate diagnostic.
+    }
+
+    // --- Meta / API status ---
+    async function loadMeta() {
+      try {
+        const res = await fetch('/meta');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+
+        apiStatusDotEl.classList.remove('err');
+        apiStatusDotEl.classList.add('ok');
+        apiStatusTextEl.textContent = 'API online';
+
+        if (Array.isArray(data.supported_model_types)) {
+          if (!data.supported_model_types.includes('transformer')) {
+            [...modelTypeEl.options].forEach(opt => {
+              if (opt.value === 'transformer') opt.disabled = true;
+            });
+          }
+          if (data.default_model_type) {
+            modelTypeEl.value = data.default_model_type;
+          }
+        }
+        if (typeof data.default_normalize === 'boolean') {
+          normalizeEl.checked = data.default_normalize;
+        }
+      } catch (e) {
+        console.error(e);
+        apiStatusDotEl.classList.remove('ok');
+        apiStatusDotEl.classList.add('err');
+        apiStatusTextEl.textContent = 'API offline. Start backend (run_demo_api.sh / Docker).';
+      }
+    }
+
+    // --- Example inputs and scenarios ---
+    const exampleTexts = {
+      positive: 'ខ្ញុំសប្បាយចិត្តណាស់ អរគុណច្រើន សេវាកម្មល្អបំផុត ❤️',
+      negative: 'សេវាកម្មអាក្រក់បំផុត មិនដែលវិញទៀតទេ 😡',
+      ambiguous: 'អរគុណណាស់ ទាន់ពេលគឺទាន់ពេល តែកុំធ្វើបែបនេះឡើងវិញទេ 🙄',
+      noisy: 'Service គឺ ok តិចតួច តម្លៃថ្លៃពេក 😂'
+    };
+
+    const scenarios = [
+      {
+        id: 'clear_pos',
+        label: 'Clear positive opinion',
+        description: 'High confidence, singleton prediction set (τ small).',
+        text: exampleTexts.positive,
+        model: 'transformer',
+        tau: 0.1
+      },
+      {
+        id: 'clear_neg',
+        label: 'Clear negative complaint',
+        description: 'High confidence negative sentiment.',
+        text: exampleTexts.negative,
+        model: 'baseline',
+        tau: 0.1
+      },
+      {
+        id: 'sarcastic',
+        label: 'Sarcastic / ambiguous',
+        description: 'Mixed cues, larger prediction set and higher entropy.',
+        text: exampleTexts.ambiguous,
+        model: 'transformer',
+        tau: 0.2
+      },
+      {
+        id: 'noisy_codeswitch',
+        label: 'Noisy / code-switching',
+        description: 'Shows robustness and uncertainty for code-switched input.',
+        text: exampleTexts.noisy,
+        model: 'transformer',
+        tau: 0.2
+      },
+      {
+        id: 'very_short',
+        label: 'Very short / vague',
+        description: 'Short text, possibly higher uncertainty.',
+        text: 'ល្អ',
+        model: 'baseline',
+        tau: 0.2
+      }
+    ];
+
+    function renderScenarios() {
+      scenarioContainer.innerHTML = '';
+      scenarios.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'scenario-item';
+        const title = document.createElement('div');
+        title.className = 'scenario-title';
+        title.textContent = s.label;
+        const desc = document.createElement('div');
+        desc.className = 'scenario-desc';
+        desc.textContent = s.description;
+        div.appendChild(title);
+        div.appendChild(desc);
+        div.addEventListener('click', () => applyScenario(s));
+        scenarioContainer.appendChild(div);
+      });
+    }
+
+    function applyScenario(s) {
+      if (!s) return;
+      textEl.value = s.text;
+      modelTypeEl.value = s.model;
+      tauEl.value = s.tau.toFixed(2);
+      tauSliderEl.value = s.tau.toString();
+      normalizeEl.checked = true;
+      updateBatchSettingsNote();
+      predict();
+    }
+
+    function applyExample(type) {
+      const txt = exampleTexts[type];
+      if (!txt) return;
+      textEl.value = txt;
+      predict();
+    }
+
+    // --- Collapsible toggle handlers ---
+    function setupCollapsible(id, bodyEl, labelEl) {
+      const root = document.getElementById(id);
+      if (!root) return;
+      const header = root.querySelector('.collapsible-header');
+      if (!header) return;
+      header.addEventListener('click', () => {
+        const isHidden = bodyEl.style.display === 'none';
+        bodyEl.style.display = isHidden ? 'block' : 'none';
+        labelEl.textContent = isHidden ? 'Hide' : 'Show';
+      });
+    }
+
+    // --- Sync tau number & slider ---
+    function syncTauFromNumber() {
+      let v = parseFloat(tauEl.value);
+      if (isNaN(v)) v = 0.5;
+      v = Math.min(1, Math.max(0, v));
+      tauEl.value = v.toFixed(2);
+      tauSliderEl.value = v.toString();
+      updateBatchSettingsNote();
+    }
+    function syncTauFromSlider() {
+      let v = parseFloat(tauSliderEl.value);
+      if (isNaN(v)) v = 0.5;
+      v = Math.min(1, Math.max(0, v));
+      tauEl.value = v.toFixed(2);
+      updateBatchSettingsNote();
+    }
+
+    function updateBatchSettingsNote() {
+      const tauVal = parseFloat(tauEl.value);
+      const tauText = isNaN(tauVal) ? '?' : tauVal.toFixed(2);
+      const normText = normalizeEl.checked ? 'on' : 'off';
+      batchSettingsNote.textContent = `Current settings for batch: model = ${modelTypeEl.value}, τ = ${tauText}, normalize = ${normText}.`;
+    }
+
+    function applySampleBatch() {
+      const lines = [
+        exampleTexts.positive,
+        exampleTexts.negative,
+        exampleTexts.ambiguous,
+        exampleTexts.noisy
+      ].filter(Boolean);
+      batchInput.value = lines.join('\n');
+    }
+
+    // --- Event listeners ---
     btn.addEventListener('click', predict);
     textEl.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         predict();
       }
     });
-    btnBatch.addEventListener('click', predictBatch);
 
+    btnBatch.addEventListener('click', predictBatch);
+    btnBatchSample.addEventListener('click', applySampleBatch);
+    btnTauSweep.addEventListener('click', sweepTau);
+
+    document.querySelectorAll('.example-bar button[data-example]').forEach(btnEx => {
+      const type = btnEx.getAttribute('data-example');
+      btnEx.addEventListener('click', () => applyExample(type));
+    });
+
+    tauEl.addEventListener('change', syncTauFromNumber);
+    tauEl.addEventListener('blur', syncTauFromNumber);
+    tauSliderEl.addEventListener('input', syncTauFromSlider);
+
+    modelTypeEl.addEventListener('change', updateBatchSettingsNote);
+    normalizeEl.addEventListener('change', updateBatchSettingsNote);
+
+    setupCollapsible('normalizedCollapsible', normalizedBody, normalizedToggleLabel);
+    setupCollapsible('importanceCollapsible', importanceBody, importanceToggleLabel);
+    setupCollapsible('legendCollapsible', legendBody, legendToggleLabel);
+
+    // --- Init ---
     loadMeta();
+    syncTauFromNumber();
+    updateBatchSettingsNote();
+    renderScenarios();
   </script>
 </body>
 </html>

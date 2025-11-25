@@ -75,17 +75,17 @@ python -m tools.train_tokenizer \
   --text_column text \
   --output_dir "${TOKENIZER_DIR}" || echo "Warning: tokenizer training failed; continuing to API."
 
-echo "[5/6] Training transformer model (Khmer sentiment)..."
-python -m modeling.train_transformer \
-  --input "${DATA_DIR}/final_dataset.csv" \
-  --use_splits \
-  --output_dir "${TRANSFORMER_DIR}" \
-  --model_name "xlm-roberta-base" \
-  --epochs 1 \
-  --batch_size 4 \
-  --grad_accum 1 \
-  --lr 5e-5 \
-  --tracking none || echo "Warning: transformer training failed; continuing to API."
+# echo "[5/6] Training transformer model (Khmer sentiment)..."
+# python -m modeling.train_transformer \
+#   --input "${DATA_DIR}/final_dataset.csv" \
+#   --use_splits \
+#   --output_dir "${TRANSFORMER_DIR}" \
+#   --model_name "xlm-roberta-base" \
+#   --epochs 1 \
+#   --batch_size 4 \
+#   --grad_accum 1 \
+#   --lr 5e-5 \
+#   --tracking none || echo "Warning: transformer training failed; continuing to API."
 
 echo
 echo "[6/6] Starting Khmer Sentiment Demo API..."
