@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Ingest a new annotated dataset into the Khmer Sentiment pipeline.
+Ingest a new annotated dataset into the Khmer+English Sentiment pipeline.
 
 Steps:
-1) Validate the input CSV schema and basic quality
+1) Validate the input CSV schema and basic quality (bilingual-aware)
 2) Run the finalization pipeline to produce final_dataset.csv
 3) Optionally export leakage-safe splits (final_train/val/test.csv)
 
-Expected input CSV columns: id,text,label[,<group_column>]
+Expected input CSV columns: id,text,label[,lang,group,split,source]
 Labels are normalized to POS/NEG/NEU by the finalization stage.
 
 Examples:
@@ -24,6 +24,12 @@ Examples:
     --group_column group \
     --output_dir annotation/sample_data \
     --export_splits --group_aware_splits
+
+  # With language column and allowed language set
+  python tools/ingest_dataset.py \
+    --raw_csv path/to/annotations.csv \
+    --lang_column lang --allowed_langs km en \
+    --output_dir annotation/sample_data
 """
 from __future__ import annotations
 
@@ -40,13 +46,17 @@ def run(cmd: list[str]) -> int:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Ingest new annotated dataset (validate + finalize + export splits)")
-    ap.add_argument("--raw_csv", required=True, help="Path to raw annotations CSV with id,text,label[,group]")
+    ap.add_argument("--raw_csv", required=True, help="Path to raw annotations CSV with id,text,label[,lang,group,split,source]")
     ap.add_argument("--output_dir", required=True, help="Directory where outputs will be written")
     ap.add_argument("--groups_csv", help="Optional path to CSV mapping id -> group (or id,<group_column>)")
     ap.add_argument("--group_column", default="group", help="Group column name in groups_csv (default: group)")
+    ap.add_argument("--lang_column", default=None, help="Optional language column name (e.g., 'lang')")
+    ap.add_argument("--allowed_langs", nargs="*", default=None, help="List of allowed language codes (e.g., km en)")
+    ap.add_argument("--split_column", default=None, help="Optional split column name ('train'|'val'|'test')")
     ap.add_argument("--export_splits", action="store_true", help="Export final_train/val/test.csv next to final_dataset.csv")
     ap.add_argument("--group_aware_splits", action="store_true", help="Use group-aware splitting if group metadata is provided")
     ap.add_argument("--allow_extra_labels", action="store_true", help="Allow labels outside {POS,NEG,NEU} during validation")
+    ap.add_argument("--allow_extra_langs", action="store_true", help="Allow language values outside --allowed_langs during validation")
     args = ap.parse_args()
 
     raw_csv = Path(args.raw_csv)
@@ -63,9 +73,17 @@ def main() -> None:
     ]
     if args.allow_extra_labels:
         val_cmd.append("--allow_extra_labels")
-    # Include group column check if provided
+    if args.allow_extra_langs:
+        val_cmd.append("--allow_extra_langs")
+    # Include optional column checks if provided
     if args.groups_csv:
         val_cmd.extend(["--group_column", str(args.group_column)])
+    if args.lang_column:
+        val_cmd.extend(["--lang_column", str(args.lang_column)])
+    if args.allowed_langs:
+        val_cmd.extend(["--allowed_langs", *args.allowed_langs])
+    if args.split_column:
+        val_cmd.extend(["--split_column", str(args.split_column)])
 
     rc = run(val_cmd)
     if rc != 0:

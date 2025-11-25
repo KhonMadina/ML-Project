@@ -19,6 +19,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
+import os
+import platform
 
 try:
     import yaml  # type: ignore
@@ -47,6 +49,12 @@ try:
 except Exception:
     torch = None
 
+# Optional system info
+try:
+    import psutil  # type: ignore
+except Exception:
+    psutil = None
+
 
 def env_metadata() -> Dict[str, Optional[str]]:
     """Return lightweight environment metadata for experiment logging.
@@ -63,6 +71,67 @@ def env_metadata() -> Dict[str, Optional[str]]:
         except Exception:
             meta[name] = None
     return meta
+
+
+def hardware_metadata() -> Dict[str, Any]:
+    """Collect best-effort hardware/system information.
+
+    Returns a dict with CPU, RAM, GPU (if torch+CUDA available), and OS info.
+    All fields are optional and failures are swallowed to keep this non-fatal.
+    """
+    info: Dict[str, Any] = {}
+    try:
+        info["os"] = {
+            "platform": platform.system(),
+            "platform_release": platform.release(),
+            "platform_version": platform.version(),
+            "python_implementation": platform.python_implementation(),
+        }
+    except Exception:
+        pass
+
+    try:
+        info["cpu"] = {
+            "count_logical": os.cpu_count(),
+            "processor": platform.processor(),
+            "machine": platform.machine(),
+        }
+    except Exception:
+        pass
+
+    try:
+        if psutil is not None:
+            vm = psutil.virtual_memory()
+            info.setdefault("ram", {})["total_gb"] = round(float(vm.total) / (1024 ** 3), 2)
+    except Exception:
+        pass
+
+    try:
+        if torch is not None:
+            cuda_ok = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())  # type: ignore[attr-defined]
+            info["cuda_available"] = cuda_ok
+            if cuda_ok:
+                dev_count = torch.cuda.device_count()
+                info["cuda_device_count"] = int(dev_count)
+                # Query first device for summary
+                try:
+                    name0 = torch.cuda.get_device_name(0)
+                    cap = torch.cuda.get_device_capability(0)
+                    info["gpu0"] = {
+                        "name": name0,
+                        "capability": f"{cap[0]}.{cap[1]}",
+                    }
+                except Exception:
+                    pass
+                try:
+                    drv = torch.version.cuda  # type: ignore[attr-defined]
+                    info["cuda_version"] = drv
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return info
 
 
 def set_global_seed(seed: int, deterministic: bool = True) -> None:
@@ -343,15 +412,45 @@ def prepare_experiment(cfg: Config) -> Tracker:
     tracker.set_tags({"exp_name": cfg.experiment_name})
 
     # persist config snapshot to output_dir
+    env = env_metadata()
     snap = {
         "experiment_name": cfg.experiment_name,
         "seed": cfg.seed,
         "tracking": cfg.tracking,
         "output_dir": cfg.output_dir,
         "params": cfg.params,
-        "env": env_metadata(),
+        "env": env,
     }
     out_dir.joinpath("experiment_config.json").write_text(
         json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+    # collect hardware metadata and store/log
+    hw = hardware_metadata()
+    try:
+        out_dir.joinpath("hardware.json").write_text(
+            json.dumps(hw, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        tracker.log_artifact(out_dir / "hardware.json")
+    except Exception:
+        pass
+
+    # set tags with a few useful hints for experiment browsing
+    tags: Dict[str, str] = {}
+    try:
+        if hw.get("cuda_available"):
+            tags["device"] = "cuda"
+        else:
+            tags["device"] = "cpu"
+        if "gpu0" in hw and isinstance(hw["gpu0"], dict):
+            tags["gpu_name"] = str(hw["gpu0"].get("name", "unknown"))
+        if hw.get("cuda_version"):
+            tags["cuda_version"] = str(hw["cuda_version"])  # type: ignore[arg-type]
+        if env.get("torch"):
+            tags["torch_version"] = str(env.get("torch"))
+    except Exception:
+        pass
+    if tags:
+        tracker.set_tags(tags)
+
     return tracker

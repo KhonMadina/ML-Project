@@ -2,1557 +2,323 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Khmer Sentiment Analysis Demo</title>
+  <title>Khmer+English Sentiment Control Panel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root {
-      --bg: #f5f5f7;
-      --card-bg: #ffffff;
-      --text-main: #111827;
-      --text-muted: #6b7280;
-      --border-subtle: #e5e7eb;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --danger: #b91c1c;
-      --pos: #16a34a;
-      --neg: #dc2626;
-      --neu: #2563eb;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      margin: 0;
-      padding: 0;
-      background: var(--bg);
-      color: var(--text-main);
-    }
-
-    header {
-      background: #1f2937;
-      color: #fff;
-      padding: 1rem 1.5rem 0.85rem;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.4);
-    }
-    header h1 {
-      margin: 0 0 0.15rem 0;
-      font-size: 1.4rem;
-      letter-spacing: 0.01em;
-    }
-    header p {
-      margin: 0;
-      font-size: 0.9rem;
-      opacity: 0.85;
-    }
-    .header-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      margin-top: 0.5rem;
-    }
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.25rem 0.55rem;
-      border-radius: 999px;
-      font-size: 0.78rem;
-      background: rgba(15, 23, 42, 0.8);
-      border: 1px solid rgba(148, 163, 184, 0.7);
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #9ca3af;
-    }
-    .status-dot.ok {
-      background: #22c55e;
-    }
-    .status-dot.err {
-      background: #ef4444;
-    }
-
-    main {
-      max-width: 1180px;
-      margin: 1.3rem auto 2.2rem;
-      padding: 0 1rem;
-    }
-
-    .section-title {
-      font-size: 0.9rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #6b7280;
-      margin: 0 0 0.3rem;
-    }
-
-    .card {
-      background: var(--card-bg);
-      border-radius: 12px;
-      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
-      padding: 1.15rem 1.35rem;
-      margin-bottom: 1rem;
-      border: 1px solid rgba(148, 163, 184, 0.25);
-    }
-
-    .card h2 {
-      margin: 0 0 0.2rem;
-      font-size: 1.0rem;
-    }
-
-    .card-subtitle {
-      margin: 0 0 0.55rem;
-      font-size: 0.83rem;
-      color: var(--text-muted);
-    }
-
-    .main-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.5fr);
-      gap: 1rem;
-      align-items: flex-start;
-      margin-bottom: 1rem;
-    }
-
-    @media (max-width: 900px) {
-      .main-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
-    }
-
-    .input-row {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-
-    textarea {
-      width: 100%;
-      min-height: 100px;
-      resize: vertical;
-      padding: 0.75rem;
-      border-radius: 8px;
-      border: 1px solid #d1d5db;
-      font-size: 0.95rem;
-      font-family: inherit;
-      background: #f9fafb;
-    }
-
-    label {
-      font-weight: 600;
-      font-size: 0.9rem;
-    }
-
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      align-items: center;
-      margin-top: 0.15rem;
-    }
-
-    .control-group {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.3rem;
-    }
-
-    input[type="number"],
-    input[type="range"],
-    select {
-      font-size: 0.85rem;
-      font-family: inherit;
-      border-radius: 6px;
-      border: 1px solid #d1d5db;
-      padding: 0.25rem 0.35rem;
-      background: #f9fafb;
-    }
-
-    input[type="range"] {
-      width: 130px;
-      padding: 0;
-    }
-
-    button {
-      background: var(--primary);
-      border: none;
-      color: #fff;
-      padding: 0.55rem 1.1rem;
-      border-radius: 999px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      transition: background 0.15s ease, transform 0.05s ease;
-    }
-    button:hover {
-      background: var(--primary-hover);
-    }
-    button:active {
-      transform: translateY(0.5px);
-    }
-    button:disabled {
-      background: #9ca3af;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .btn-secondary {
-      background: #e5e7eb;
-      color: #111827;
-    }
-    .btn-secondary:hover {
-      background: #d1d5db;
-    }
-
-    .small {
-      font-size: 0.8rem;
-      color: #6b7280;
-    }
-
-    .muted {
-      color: var(--text-muted);
-    }
-
-    .pill-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.25rem;
-      padding: 0.1rem 0.45rem;
-      border-radius: 999px;
-      background: #f3f4f6;
-      font-size: 0.78rem;
-      color: #4b5563;
-    }
-
-    .example-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-top: 0.2rem;
-    }
-
-    .example-bar button {
-      font-size: 0.78rem;
-      padding: 0.3rem 0.7rem;
-      background: #e5e7eb;
-      color: #111827;
-    }
-    .example-bar button:hover {
-      background: #d1d5db;
-    }
-
-    .scenario-list {
-      margin-top: 0.5rem;
-      border-radius: 8px;
-      border: 1px dashed #e5e7eb;
-      padding: 0.45rem 0.6rem;
-      background: #f9fafb;
-    }
-    .scenario-item {
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
-      padding: 0.3rem 0.35rem;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-    .scenario-item:hover {
-      background: #e5e7eb;
-    }
-    .scenario-title {
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-    .scenario-desc {
-      font-size: 0.78rem;
-      color: #6b7280;
-    }
-
-    .error {
-      color: var(--danger);
-      font-size: 0.85rem;
-      margin-top: 0.4rem;
-    }
-
-    .result-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.75rem;
-      margin-top: 0.5rem;
-    }
-
-    .dual-model-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 0.75rem;
-      margin-top: 0.5rem;
-    }
-
-    @media (max-width: 800px) {
-      .dual-model-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
-    }
-
-    .subcard {
-      border-radius: 10px;
-      border: 1px solid #e5e7eb;
-      padding: 0.7rem 0.8rem;
-      background: #f9fafb;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0.15rem 0.55rem;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }
-    .badge-pos { background: #ecfdf3; color: #166534; }
-    .badge-neg { background: #fef2f2; color: #991b1b; }
-    .badge-neu { background: #eff6ff; color: #1d4ed8; }
-    .badge-set { background: #f5f3ff; color: #5b21b6; }
-    .badge-model { background: #eef2ff; color: #3730a3; }
-    .badge-ood-ok { background: #ecfdf3; color: #16a34a; }
-    .badge-ood-warn { background: #fef9c3; color: #854d0e; }
-
-    .meta-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.55rem;
-      font-size: 0.8rem;
-      color: #4b5563;
-      margin-top: 0.4rem;
-      align-items: center;
-    }
-
-    .prob-row {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      margin-bottom: 0.25rem;
-      font-size: 0.85rem;
-    }
-    .prob-bar-bg {
-      flex: 1;
-      background: #e5e7eb;
-      border-radius: 999px;
-      overflow: hidden;
-      height: 0.55rem;
-    }
-    .prob-bar-fill {
-      height: 100%;
-      border-radius: 999px;
-      transition: width 0.2s ease;
-    }
-
-    .uncertainty-panel {
-      display: grid;
-      grid-template-columns: 1.3fr 1.2fr;
-      gap: 0.6rem;
-      margin-top: 0.45rem;
-    }
-    @media (max-width: 700px) {
-      .uncertainty-panel {
-        grid-template-columns: minmax(0, 1fr);
-      }
-    }
-
-    .gauge-wrapper {
-      display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
-    }
-    .gauge-label {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.78rem;
-      color: #6b7280;
-    }
-    .gauge-bg {
-      position: relative;
-      width: 100%;
-      height: 0.6rem;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #f97316 0%, #eab308 50%, #22c55e 100%);
-      overflow: hidden;
-    }
-    .gauge-fill {
-      position: absolute;
-      top: 0;
-      left: 0;
-      height: 100%;
-      background: rgba(15, 23, 42, 0.4);
-      transform-origin: left;
-      transform: scaleX(0);
-      transition: transform 0.25s ease;
-    }
-
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-      margin-top: 0.45rem;
-    }
-
-    .collapsible {
-      margin-top: 0.35rem;
-      border-radius: 8px;
-      border: 1px dashed #e5e7eb;
-      padding: 0.4rem 0.55rem 0.55rem;
-      background: #f9fafb;
-    }
-
-    .collapsible-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      cursor: pointer;
-      font-size: 0.82rem;
-      color: #4b5563;
-    }
-
-    .collapsible-body {
-      margin-top: 0.35rem;
-      font-size: 0.82rem;
-    }
-
-    pre {
-      margin: 0;
-      background: #f9fafb;
-      border-radius: 6px;
-      padding: 0.4rem 0.55rem;
-      font-size: 0.86rem;
-      white-space: pre-wrap;
-    }
-
-    .importance-list {
-      list-style: none;
-      padding-left: 0;
-      margin: 0.25rem 0 0;
-      font-size: 0.8rem;
-    }
-    .importance-item {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      margin-bottom: 0.15rem;
-    }
-    .importance-bar {
-      flex: 1;
-      height: 0.3rem;
-      border-radius: 999px;
-      background: #e5e7eb;
-      overflow: hidden;
-    }
-    .importance-bar-fill {
-      height: 100%;
-    }
-
-    .divider {
-      margin: 0.9rem 0;
-      border: 0;
-      border-top: 1px solid #e5e7eb;
-    }
-
-    code {
-      background: #f3f4f6;
-      padding: 0.1rem 0.3rem;
-      border-radius: 4px;
-      font-size: 0.85rem;
-    }
-
-    .inline-note {
-      font-size: 0.78rem;
-      color: #6b7280;
-      margin-top: 0.3rem;
-    }
-
-    .success-msg {
-      font-size: 0.8rem;
-      color: #15803d;
-      margin-top: 0.3rem;
-    }
-
-    .history-list {
-      list-style: none;
-      padding: 0;
-      margin: 0.35rem 0 0;
-      max-height: 220px;
-      overflow-y: auto;
-    }
-    .history-item {
-      padding: 0.35rem 0.35rem;
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
-    }
-    .history-item:hover {
-      background: #e5e7eb;
-    }
-    .history-main {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.4rem;
-    }
-    .history-text {
-      font-size: 0.8rem;
-      color: #111827;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .history-meta {
-      font-size: 0.75rem;
-      color: #6b7280;
-    }
-
-    .legend-list {
-      list-style: none;
-      padding-left: 0;
-      margin: 0.3rem 0 0;
-      font-size: 0.78rem;
-      color: #4b5563;
-    }
-
-    .tau-sweep-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 0.4rem;
-      font-size: 0.78rem;
-    }
-    .tau-sweep-table th,
-    .tau-sweep-table td {
-      border-bottom: 1px solid #e5e7eb;
-      padding: 0.2rem 0.25rem;
-      text-align: left;
-    }
-    .tau-sweep-row-highlight {
-      background: #eff6ff;
-    }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #f7f7fb; color: #0f172a; }
+    header { background: #0f172a; color: #fff; padding: 1rem 1.25rem; }
+    header h1 { margin: 0; font-size: 1.2rem; }
+    header p { margin: .25rem 0 0; font-size: .9rem; opacity: .85; }
+    main { max-width: 1200px; margin: 1.1rem auto 2rem; padding: 0 1rem; }
+    .grid { display: grid; grid-template-columns: 1.1fr 1.3fr; gap: 1rem; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 2px 6px rgba(16,24,40,.06); padding: 1rem 1.2rem; }
+    .title { font-size: .95rem; text-transform: uppercase; color: #64748b; letter-spacing: .08em; margin: 0 0 .3rem; }
+    .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+    select, input[type="text"], input[type="number"], textarea { border: 1px solid #d1d5db; border-radius: 8px; padding: .45rem .55rem; font-size: .92rem; background: #f8fafc; }
+    textarea { width: 100%; min-height: 110px; resize: vertical; }
+    button { background: #2563eb; border: none; color: #fff; padding: .5rem 1.0rem; border-radius: 999px; cursor: pointer; font-size: .9rem; }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+    .btn-secondary { background: #e5e7eb; color: #111827; }
+    .muted { color: #6b7280; font-size: .85rem; }
+    .pill { display: inline-flex; align-items: center; gap: .35rem; padding: .15rem .5rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: .78rem; }
+    .small { font-size: .82rem; }
+    .list { list-style: none; padding: 0; margin: .25rem 0 0; }
+    .list li { padding: .25rem 0; border-bottom: 1px solid #f1f5f9; }
+    .prob { display: grid; grid-template-columns: 44px 1fr 52px; gap: .45rem; align-items: center; font-size: .85rem; }
+    .bar { width: 100%; height: .55rem; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .fill { height: 100%; background: #2563eb; }
+    .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+    @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+    img.thumb { max-width: 100%; border: 1px solid #e5e7eb; border-radius: 8px; }
+    .err { color: #b91c1c; font-size: .85rem; margin-top: .35rem; }
+    .ok { color: #15803d; font-size: .85rem; margin-top: .35rem; }
+    .sep { border-top: 1px solid #e5e7eb; margin: .8rem 0; }
+    .table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .table th, .table td { border-bottom: 1px solid #e5e7eb; padding: .35rem .4rem; text-align: left; }
   </style>
 </head>
 <body>
   <header>
-    <h1>Khmer Sentiment Analysis Demo</h1>
-    <p>Research demo: baseline vs transformer models with conformal prediction sets and uncertainty metrics for Khmer sentiment (POS / NEG / NEU).</p>
-    <div class="header-row">
-      <div class="small">1) Enter Khmer text · 2) Choose model & τ · 3) Inspect prediction, prediction set, and uncertainty.</div>
-      <div class="status-pill" id="apiStatus">
-        <span class="status-dot" id="apiStatusDot"></span>
-        <span id="apiStatusText">Checking API...</span>
-      </div>
-    </div>
+    <h1>Khmer+English Sentiment Control Panel</h1>
+    <p>Bilingual inference, stress testing, dataset validation, IAA, and reporting.</p>
   </header>
 
   <main>
-    <div class="main-grid">
+    <div class="grid">
       <section class="card">
-        <div class="section-title">1. Input & settings</div>
-        <h2>Single-text prediction</h2>
-        <p class="card-subtitle">Enter one Khmer sentence and explore how model choice and the conformal threshold τ affect predictions and prediction sets.</p>
-
-        <div class="input-row">
-          <label for="text">Input Khmer text</label>
-          <textarea id="text" placeholder="ឧទាហរណ៍៖ អរគុណច្រើន"></textarea>
-
-          <div class="example-bar small">
-            <span class="muted">Quick examples:</span>
-            <button type="button" data-example="positive">Positive</button>
-            <button type="button" data-example="negative">Negative</button>
-            <button type="button" data-example="ambiguous">Ambiguous / sarcastic</button>
-            <button type="button" data-example="noisy">Noisy / code-switching</button>
-          </div>
-
-          <div class="scenario-list small">
-            <strong>Demo scenarios</strong>
-            <div id="scenarioContainer"></div>
-          </div>
-
-          <div class="controls small">
-            <div class="control-group">
-              <span class="pill-label">τ (conformal threshold)</span>
-              <input type="number" id="tau" min="0" max="1" step="0.01" value="0.5" style="width:80px;" />
-              <input type="range" id="tauSlider" min="0" max="1" step="0.01" value="0.5" />
-            </div>
-            <div class="control-group">
-              <label for="modelType">Model:</label>
-              <select id="modelType">
-                <option value="baseline">Baseline (TF–IDF + LR)</option>
-                <option value="transformer">Transformer</option>
-              </select>
-            </div>
-            <label class="control-group">
-              <input type="checkbox" id="normalize" checked />
-              <span>Normalize text</span>
-            </label>
-            <label class="control-group">
-              <input type="checkbox" id="compareBoth" />
-              <span>Compare both models</span>
-            </label>
-            <button id="btnPredict" type="button">
-              <span id="btnPredictLabel">Predict sentiment</span>
-            </button>
-            <button id="btnTauSweep" type="button" class="btn-secondary small">Sweep τ</button>
-          </div>
-
-          <p class="inline-note">Lower τ → larger prediction sets (more conservative). Higher τ → smaller sets (more decisive).</p>
-
-          <div class="error" id="error"></div>
+        <div class="title">Model management</div>
+        <div class="row">
+          <select id="modelSelect"></select>
+          <button id="btnLoad">Load</button>
+          <span id="modelStatus" class="muted">No model loaded</span>
         </div>
+        <div class="sep"></div>
+        <div class="title">Model card</div>
+        <div id="modelCard" class="small"></div>
       </section>
 
-      <section class="card" id="resultCard" style="display:none;">
-        <div class="section-title">2. Model output & uncertainty</div>
-        <h2>Prediction result</h2>
-        <p class="card-subtitle">Inspect the predicted label, conformal prediction set, class probabilities, and uncertainty metrics. If comparison is enabled, baseline and transformer are shown side by side.</p>
-
-        <div id="singleModelContainer" class="result-grid" style="display:none;"></div>
-        <div id="dualModelContainer" class="dual-model-grid" style="display:none;"></div>
-
-        <div id="tauSweepContainer" class="small" style="margin-top:0.7rem; display:none;"></div>
-
-        <hr class="divider" />
-        <div class="toggle-row small">
-          <div>
-            <strong>Internal processing</strong> &mdash; what the model actually sees and uses.
-          </div>
+      <section class="card">
+        <div class="title">Inference</div>
+        <textarea id="text" placeholder="Enter Khmer/English text..."></textarea>
+        <div class="row">
+          <label class="small">Top-K <input type="number" id="topk" min="1" max="5" value="3" style="width:70px;" /></label>
+          <label class="small">Max length <input type="number" id="maxlen" min="32" max="512" value="192" style="width:80px;" /></label>
+          <button id="btnInfer">Predict</button>
         </div>
-
-        <div class="collapsible" id="normalizedCollapsible">
-          <div class="collapsible-header" data-target="normalizedBody">
-            <span>Normalized / preprocessed text</span>
-            <span class="muted" id="normalizedToggleLabel">Show</span>
-          </div>
-          <div class="collapsible-body" id="normalizedBody" style="display:none;">
-            <p class="small muted" style="margin-bottom:0.25rem;">This is the text actually sent to the model after cleaning and normalization.</p>
-            <pre id="normalizedText"></pre>
-          </div>
+        <div id="inferErr" class="err"></div>
+        <div id="inferOut" class="cols mt"></div>
+        <div class="sep"></div>
+        <div class="title">Tokenization preview (transformers)</div>
+        <div class="row">
+          <button id="btnTokenize" class="btn-secondary">Preview tokens</button>
+          <span id="tokMeta" class="muted"></span>
         </div>
-
-        <div class="collapsible" id="importanceCollapsible">
-          <div class="collapsible-header" data-target="importanceBody">
-            <span>Top features (baseline model)</span>
-            <span class="muted" id="importanceToggleLabel">Show</span>
-          </div>
-          <div class="collapsible-body" id="importanceBody" style="display:none;">
-            <p class="small muted" style="margin-bottom:0.25rem;">Most influential features for the baseline TF&ndash;IDF + logistic regression classifier on this particular input.</p>
-            <ul id="importanceList" class="importance-list"></ul>
-          </div>
-        </div>
-
-        <div class="collapsible" id="legendCollapsible" style="margin-top:0.5rem;">
-          <div class="collapsible-header" data-target="legendBody">
-            <span>Legend & explanation</span>
-            <span class="muted" id="legendToggleLabel">Show</span>
-          </div>
-          <div class="collapsible-body" id="legendBody" style="display:none;">
-            <ul class="legend-list">
-              <li><strong>POS / NEG / NEU badges</strong> &mdash; sentiment classes (green = positive, red = negative, blue = neutral).</li>
-              <li><strong>Conformal prediction set</strong> &mdash; set of labels guaranteed to contain the true label with probability ≥ 1 − τ (on calibration data).</li>
-              <li><strong>Max class probability gauge</strong> &mdash; darker overlay shows how concentrated the model's belief is on its top class.</li>
-              <li><strong>Entropy</strong> &mdash; measures uncertainty over classes: low = confident, high = uncertain.</li>
-              <li><strong>Prediction set size</strong> &mdash; how many labels are in the conformal set (1 = very confident, 3 = very uncertain).</li>
-            </ul>
-          </div>
-        </div>
+        <div id="tokOut" class="small"></div>
       </section>
     </div>
 
-    <section class="card">
-      <div class="section-title">3. Batch prediction</div>
-      <h2>Batch prediction & CSV export</h2>
-      <p class="card-subtitle">Paste one text per line. The current settings (model, τ, normalization) are applied to every line and the predictions are downloaded as a CSV file.</p>
+    <div class="grid" style="margin-top:1rem;">
+      <section class="card">
+        <div class="title">Stress transforms</div>
+        <div class="row">
+          <select id="preset">
+            <option value="diacritics">diacritics</option>
+            <option value="zero_width">zero_width</option>
+            <option value="emoji_burst">emoji_burst</option>
+            <option value="elongation">elongation</option>
+            <option value="mixed_script">mixed_script</option>
+            <option value="code_switch">code_switch</option>
+            <option value="latinized_khmer">latinized_khmer</option>
+          </select>
+          <label class="small">Severity <input type="number" id="severity" min="0" max="1" step="0.1" value="0.5" style="width:80px;" /></label>
+          <label class="small">Prob <input type="number" id="prob" min="0" max="1" step="0.1" value="0.7" style="width:80px;" /></label>
+          <button id="btnTransform" class="btn-secondary">Transform</button>
+        </div>
+        <div class="small mt"><strong>Original</strong><div id="origText" class="muted"></div></div>
+        <div class="small mt"><strong>Transformed</strong><div id="xText"></div></div>
+      </section>
 
-      <label for="batchInput" class="small" style="font-weight:600;">Batch input (one text per line)</label>
-      <textarea id="batchInput" placeholder="Line 1 text
-Line 2 text"></textarea>
-      <div class="controls">
-        <button id="btnPredictBatch" type="button">Predict batch</button>
-        <button id="btnBatchSample" type="button" class="btn-secondary small">Paste sample batch</button>
-      </div>
-      <p class="inline-note small" id="batchSettingsNote"></p>
-      <p class="inline-note small">Output columns: <code>text, normalized_text, pred_label, proba_POS, proba_NEG, proba_NEU, conformal_set, tau</code>. Prediction sets are encoded as <code>POS|NEG|NEU</code>.</p>
-      <div class="error" id="batchError"></div>
-      <div class="success-msg" id="batchSuccess" style="display:none;"></div>
-    </section>
+      <section class="card">
+        <div class="title">Reports</div>
+        <div class="row">
+          <input type="text" id="glob" placeholder="models/*" style="min-width:200px;" />
+          <input type="text" id="outdir" placeholder="reports/final" style="min-width:200px;" />
+          <button id="btnExport">Export</button>
+          <button id="btnBrowse" class="btn-secondary">Browse</button>
+        </div>
+        <div id="exportMsg" class="small mt"></div>
+        <div id="reportView" class="small mt"></div>
+      </section>
+    </div>
 
-    <section class="card">
-      <div class="section-title">4. Recent predictions</div>
-      <h2>History (last 5)</h2>
-      <p class="card-subtitle">Use this panel to revisit interesting examples quickly during a live demo.</p>
-      <ul id="historyList" class="history-list"></ul>
-      <p class="inline-note">Click a row to restore its input text and settings, then re-run the prediction.</p>
-    </section>
+    <div class="grid" style="margin-top:1rem;">
+      <section class="card">
+        <div class="title">Dataset validation</div>
+        <div class="row">
+          <input type="text" id="valCsv" placeholder="annotation/sample_data/final_dataset.csv" style="min-width:320px;" />
+          <input type="text" id="valLang" placeholder="lang" style="width:120px;" />
+          <input type="text" id="valGroup" placeholder="group" style="width:120px;" />
+          <input type="text" id="valSplit" placeholder="split" style="width:120px;" />
+          <button id="btnValidate" class="btn-secondary">Validate</button>
+        </div>
+        <div id="valOut" class="small mt"></div>
+      </section>
 
-    <section class="card">
-      <div class="section-title">5. Programmatic access</div>
-      <h2>API reference</h2>
-      <p class="card-subtitle">The browser UI is a thin client over a FastAPI backend. Use the same endpoints in experiments or external systems.</p>
-      <ul class="small">
-        <li><code>GET /health</code> &rarr; status and model info.</li>
-        <li><code>GET /meta</code> &rarr; model information, label set, and supported model types.</li>
-        <li><code>POST /predict</code> with JSON <code>{"text": "...", "model_type": "baseline|transformer", "tau": 0.5, "normalize": true}</code> &rarr; prediction, probabilities, conformal set, uncertainty, importance.</li>
-        <li><code>POST /predict/batch</code> with JSON <code>[{"text": "...", "model_type": "...", "tau": 0.5, "normalize": true}]</code> &rarr; list of predictions.</li>
-        <li>Interactive docs: <code>/docs</code></li>
-      </ul>
-    </section>
+      <section class="card">
+        <div class="title">IAA (Cohen's kappa)</div>
+        <div class="row">
+          <input type="text" id="iaaCsv" placeholder="annotation/annotations_raw.csv" style="min-width:320px;" />
+          <input type="text" id="iaaLang" placeholder="lang" style="width:120px;" />
+          <button id="btnIAA" class="btn-secondary">Compute</button>
+        </div>
+        <div id="iaaOut" class="small mt"></div>
+      </section>
+    </div>
   </main>
 
   <script>
-    // --- DOM elements ---
-    const btn = document.getElementById('btnPredict');
-    const btnLabel = document.getElementById('btnPredictLabel');
-    const textEl = document.getElementById('text');
-    const errorEl = document.getElementById('error');
-    const resultCard = document.getElementById('resultCard');
+    async function req(url, opts={}) { const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts }); if (!r.ok) throw new Error(`${url} -> ${r.status}`); return r.json(); }
+    const els = id => document.getElementById(id);
 
-    const singleModelContainer = document.getElementById('singleModelContainer');
-    const dualModelContainer = document.getElementById('dualModelContainer');
-    const tauSweepContainer = document.getElementById('tauSweepContainer');
+    const modelSelect = els('modelSelect');
+    const btnLoad = els('btnLoad');
+    const modelStatus = els('modelStatus');
+    const modelCard = els('modelCard');
 
-    const tauEl = document.getElementById('tau');
-    const tauSliderEl = document.getElementById('tauSlider');
-    const modelTypeEl = document.getElementById('modelType');
-    const normalizeEl = document.getElementById('normalize');
-    const compareBothEl = document.getElementById('compareBoth');
-    const btnTauSweep = document.getElementById('btnTauSweep');
+    const textEl = els('text');
+    const topkEl = els('topk');
+    const maxlenEl = els('maxlen');
+    const btnInfer = els('btnInfer');
+    const inferErr = els('inferErr');
+    const inferOut = els('inferOut');
 
-    const normEl = document.getElementById('normalizedText');
-    const importanceEl = document.getElementById('importanceList');
+    const btnTokenize = els('btnTokenize');
+    const tokOut = els('tokOut');
+    const tokMeta = els('tokMeta');
 
-    const apiStatusDotEl = document.getElementById('apiStatusDot');
-    const apiStatusTextEl = document.getElementById('apiStatusText');
+    const presetEl = els('preset');
+    const severityEl = els('severity');
+    const probEl = els('prob');
+    const btnTransform = els('btnTransform');
+    const origText = els('origText');
+    const xText = els('xText');
 
-    const btnBatch = document.getElementById('btnPredictBatch');
-    const batchInput = document.getElementById('batchInput');
-    const batchError = document.getElementById('batchError');
-    const batchSuccess = document.getElementById('batchSuccess');
-    const batchSettingsNote = document.getElementById('batchSettingsNote');
-    const btnBatchSample = document.getElementById('btnBatchSample');
+    const globEl = els('glob');
+    const outdirEl = els('outdir');
+    const btnExport = els('btnExport');
+    const btnBrowse = els('btnBrowse');
+    const exportMsg = els('exportMsg');
+    const reportView = els('reportView');
 
-    const normalizedBody = document.getElementById('normalizedBody');
-    const importanceBody = document.getElementById('importanceBody');
-    const legendBody = document.getElementById('legendBody');
-    const normalizedToggleLabel = document.getElementById('normalizedToggleLabel');
-    const importanceToggleLabel = document.getElementById('importanceToggleLabel');
-    const legendToggleLabel = document.getElementById('legendToggleLabel');
+    const valCsv = els('valCsv');
+    const valLang = els('valLang');
+    const valGroup = els('valGroup');
+    const valSplit = els('valSplit');
+    const btnValidate = els('btnValidate');
+    const valOut = els('valOut');
 
-    const scenarioContainer = document.getElementById('scenarioContainer');
-    const historyList = document.getElementById('historyList');
+    const iaaCsv = els('iaaCsv');
+    const iaaLang = els('iaaLang');
+    const btnIAA = els('btnIAA');
+    const iaaOut = els('iaaOut');
 
-    // --- History state ---
-    const predictionHistory = [];
-    const MAX_HISTORY = 5;
-
-    // --- Utility: sentiment badge ---
-    function sentimentBadge(label) {
-      const span = document.createElement('span');
-      span.classList.add('badge');
-      const upper = (label || '').toUpperCase();
-      if (upper === 'POS') span.classList.add('badge-pos');
-      else if (upper === 'NEG') span.classList.add('badge-neg');
-      else span.classList.add('badge-neu');
-      span.textContent = upper || '?';
-      return span;
+    function probRow(label, p) {
+      const row = document.createElement('div'); row.className = 'prob';
+      const name = document.createElement('div'); name.textContent = label.toUpperCase();
+      const bar = document.createElement('div'); bar.className = 'bar';
+      const fill = document.createElement('div'); fill.className = 'fill'; fill.style.width = Math.round((p||0)*100) + '%';
+      bar.appendChild(fill);
+      const val = document.createElement('div'); val.textContent = (p!=null? (p*100).toFixed(1)+'%':'' ); val.style.textAlign='right';
+      row.appendChild(name); row.appendChild(bar); row.appendChild(val); return row;
     }
 
-    function probColor(label) {
-      const upper = (label || '').toUpperCase();
-      if (upper === 'POS') return '#16a34a';
-      if (upper === 'NEG') return '#dc2626';
-      if (upper === 'NEU') return '#2563eb';
-      return '#4b5563';
+    async function loadModels() {
+      try { const data = await req('/v1/models'); modelSelect.innerHTML=''; (data.models||[]).forEach(m=>{ const opt=document.createElement('option'); opt.value=m.path; opt.textContent=`${m.name} [${m.type}]` + (m.test_f1_macro!=null?` · F1=${(+m.test_f1_macro).toFixed(3)}`:''); modelSelect.appendChild(opt); }); }
+      catch(e){ modelStatus.textContent='Failed to list models'; }
     }
 
-    // --- Uncertainty helpers ---
-    function entropyCategory(ent) {
-      if (ent == null || isNaN(ent)) return '';
-      if (ent < 0.5) return 'Low entropy (model is quite certain).';
-      if (ent < 1.0) return 'Medium entropy (moderately uncertain).';
-      return 'High entropy (very uncertain).';
+    async function selectModel() {
+      const path = modelSelect.value; if (!path) return;
+      try { const res = await req('/v1/models/select', { method:'POST', body: JSON.stringify({ model_dir: path })}); modelStatus.textContent = `Loaded ${res.mode} · ${res.model_dir}`; await renderModelCard(path); }
+      catch(e){ modelStatus.textContent = 'Load failed: '+e.message; }
     }
 
-    function buildGauge(maxProba) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'gauge-wrapper';
-
-      const labelRow = document.createElement('div');
-      labelRow.className = 'gauge-label';
-      const p = (maxProba != null && !isNaN(maxProba)) ? (maxProba * 100).toFixed(1) + '%' : '?';
-      labelRow.innerHTML = `<span>Max class probability</span><span>${p}</span>`;
-
-      const gaugeBg = document.createElement('div');
-      gaugeBg.className = 'gauge-bg';
-      const fill = document.createElement('div');
-      fill.className = 'gauge-fill';
-      const frac = (maxProba != null && !isNaN(maxProba)) ? Math.max(0, Math.min(1, maxProba)) : 0;
-      fill.style.transform = `scaleX(${frac})`;
-      gaugeBg.appendChild(fill);
-
-      wrapper.appendChild(labelRow);
-      wrapper.appendChild(gaugeBg);
-      return wrapper;
-    }
-
-    // --- Render probabilities for one model ---
-    function renderProbabilities(probabilities) {
-      const container = document.createElement('div');
-      const probs = probabilities || {};
-      const keys = Object.keys(probs).sort();
-      keys.forEach(k => {
-        const v = probs[k];
-        const label = k.replace('proba_', '').toUpperCase();
-        const row = document.createElement('div');
-        row.className = 'prob-row';
-
-        const name = document.createElement('span');
-        name.style.width = '40px';
-        name.textContent = label;
-
-        const barBg = document.createElement('div');
-        barBg.className = 'prob-bar-bg';
-
-        const barFill = document.createElement('div');
-        barFill.className = 'prob-bar-fill';
-        barFill.style.width = Math.round((v || 0) * 100) + '%';
-        barFill.style.background = probColor(label);
-
-        const val = document.createElement('span');
-        val.style.width = '52px';
-        val.style.textAlign = 'right';
-        val.textContent = (v == null || isNaN(v)) ? '' : (v * 100).toFixed(1) + '%';
-
-        barBg.appendChild(barFill);
-        row.appendChild(name);
-        row.appendChild(barBg);
-        row.appendChild(val);
-        container.appendChild(row);
-      });
-      return container;
-    }
-
-    // --- Render importance list (baseline) ---
-    function renderImportance(importance) {
-      importanceEl.innerHTML = '';
-      if (!Array.isArray(importance) || !importance.length) return;
-
-      let maxAbs = 0;
-      importance.forEach(item => {
-        const w = typeof item.weight === 'number' ? item.weight : parseFloat(item.weight) || 0;
-        maxAbs = Math.max(maxAbs, Math.abs(w));
-      });
-      if (!maxAbs) maxAbs = 1;
-
-      importance.forEach(item => {
-        const li = document.createElement('li');
-        li.className = 'importance-item';
-        const feature = document.createElement('span');
-        feature.textContent = item.feature;
-
-        const bar = document.createElement('div');
-        bar.className = 'importance-bar';
-        const barFill = document.createElement('div');
-        barFill.className = 'importance-bar-fill';
-        const w = typeof item.weight === 'number' ? item.weight : parseFloat(item.weight) || 0;
-        const frac = Math.min(1, Math.abs(w) / maxAbs);
-        barFill.style.width = (frac * 100).toFixed(1) + '%';
-        barFill.style.background = w >= 0 ? 'rgba(22, 163, 74, 0.85)' : 'rgba(220, 38, 38, 0.85)';
-        bar.appendChild(barFill);
-
-        const val = document.createElement('span');
-        val.textContent = (typeof item.weight === 'number' ? item.weight.toFixed(4) : item.weight);
-        val.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-        val.style.fontSize = '0.75rem';
-        val.style.color = '#4b5563';
-
-        li.appendChild(feature);
-        li.appendChild(bar);
-        li.appendChild(val);
-        importanceEl.appendChild(li);
-      });
-    }
-
-    // --- Render a single model's prediction block ---
-    function renderModelBlock(data, labelTitle) {
-      const outer = document.createElement('div');
-      outer.className = 'subcard';
-
-      const headingRow = document.createElement('div');
-      headingRow.style.display = 'flex';
-      headingRow.style.alignItems = 'center';
-      headingRow.style.justifyContent = 'space-between';
-      headingRow.style.gap = '0.4rem';
-
-      const left = document.createElement('div');
-      const h3 = document.createElement('h3');
-      h3.style.fontSize = '0.9rem';
-      h3.style.margin = '0 0 0.25rem';
-      h3.textContent = labelTitle || 'Model';
-      left.appendChild(h3);
-
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-model';
-      badge.textContent = 'Model: ' + (data.model_type || 'baseline');
-
-      headingRow.appendChild(left);
-      headingRow.appendChild(badge);
-      outer.appendChild(headingRow);
-
-      // Predicted label
-      const predRow = document.createElement('div');
-      predRow.className = 'small';
-      predRow.style.marginTop = '0.3rem';
-      predRow.appendChild(document.createTextNode('Predicted label: '));
-      predRow.appendChild(sentimentBadge(data.pred_label));
-      outer.appendChild(predRow);
-
-      // Conformal set
-      const cs = Array.isArray(data.conformal_set) ? data.conformal_set : [];
-      const setWrapper = document.createElement('div');
-      setWrapper.style.display = 'flex';
-      setWrapper.style.flexWrap = 'wrap';
-      setWrapper.style.gap = '0.25rem';
-      setWrapper.style.alignItems = 'center';
-      setWrapper.style.marginTop = '0.3rem';
-
-      const setLabel = document.createElement('span');
-      setLabel.className = 'small';
-      setLabel.textContent = 'Conformal prediction set:';
-      setWrapper.appendChild(setLabel);
-
-      if (cs.length) {
-        cs.forEach(lbl => {
-          const b = sentimentBadge(lbl);
-          setWrapper.appendChild(b);
-        });
-      } else {
-        const empty = document.createElement('span');
-        empty.className = 'badge badge-set';
-        empty.textContent = 'No set returned';
-        setWrapper.appendChild(empty);
-      }
-
-      outer.appendChild(setWrapper);
-
-      const setNote = document.createElement('div');
-      setNote.className = 'small muted';
-      const setSize = data.pred_set_size != null ? data.pred_set_size : cs.length;
-      if (cs.length === 0) {
-        setNote.textContent = 'No labels in the set (unexpected; check configuration).';
-      } else if (cs.length === 1) {
-        setNote.textContent = 'Singleton set (high confidence at this τ). Set size = ' + setSize + '.';
-      } else if (cs.length === 3) {
-        setNote.textContent = 'All labels in the set (model is very uncertain for this input). Set size = ' + setSize + '.';
-      } else {
-        setNote.textContent = 'Intermediate set size = ' + setSize + ' label(s).';
-      }
-      outer.appendChild(setNote);
-
-      // Meta: tau, uncertainty
-      const metaRow = document.createElement('div');
-      metaRow.className = 'meta-row';
-
-      const tauInfo = document.createElement('span');
-      const tauVal = data.tau != null && !isNaN(data.tau) ? data.tau.toFixed(3) : '?';
-      tauInfo.textContent = 'τ = ' + tauVal;
-      metaRow.appendChild(tauInfo);
-
-      const uncSpan = document.createElement('span');
-      if (typeof data.max_proba === 'number' || typeof data.entropy === 'number') {
-        const mp = data.max_proba != null ? (data.max_proba * 100).toFixed(1) + '%' : '?';
-        const ent = data.entropy != null ? data.entropy.toFixed(3) : '?';
-        const size = setSize;
-        uncSpan.textContent = `Max p = ${mp}, entropy = ${ent}, set size = ${size}`;
-      }
-      metaRow.appendChild(uncSpan);
-
-      outer.appendChild(metaRow);
-
-      // Uncertainty visualization
-      const uncPanel = document.createElement('div');
-      uncPanel.className = 'uncertainty-panel';
-
-      const gaugeBox = document.createElement('div');
-      gaugeBox.appendChild(buildGauge(data.max_proba));
-      uncPanel.appendChild(gaugeBox);
-
-      const entropyBox = document.createElement('div');
-      entropyBox.className = 'small';
-      const entVal = document.createElement('div');
-      entVal.textContent = 'Entropy: ' + (data.entropy != null && !isNaN(data.entropy) ? data.entropy.toFixed(3) : '?');
-      const entCat = document.createElement('div');
-      entCat.className = 'muted';
-      entCat.textContent = entropyCategory(data.entropy);
-      entropyBox.appendChild(entVal);
-      entropyBox.appendChild(entCat);
-      uncPanel.appendChild(entropyBox);
-
-      outer.appendChild(uncPanel);
-
-      // Probabilities
-      const probHeader = document.createElement('h3');
-      probHeader.style.fontSize = '0.9rem';
-      probHeader.style.margin = '0.5rem 0 0.25rem';
-      probHeader.textContent = 'Class probabilities';
-      outer.appendChild(probHeader);
-      outer.appendChild(renderProbabilities(data.probabilities || {}));
-
-      return outer;
-    }
-
-    // --- Single or dual model result rendering ---
-    function renderResults(dataArray, context) {
-      if (!Array.isArray(dataArray) || !dataArray.length) return;
-
-      const compare = compareBothEl.checked && dataArray.length > 1;
-      singleModelContainer.innerHTML = '';
-      dualModelContainer.innerHTML = '';
-
-      if (compare) {
-        singleModelContainer.style.display = 'none';
-        dualModelContainer.style.display = 'grid';
-        dataArray.forEach(d => {
-          const title = (d.model_type || '').toLowerCase() === 'transformer'
-            ? 'Transformer model'
-            : 'Baseline (TF–IDF + LR)';
-          dualModelContainer.appendChild(renderModelBlock(d, title));
-        });
-      } else {
-        dualModelContainer.style.display = 'none';
-        singleModelContainer.style.display = 'grid';
-        const d = dataArray[0];
-        const title = (d.model_type || '').toLowerCase() === 'transformer'
-          ? 'Transformer model'
-          : 'Baseline (TF–IDF + LR)';
-        singleModelContainer.appendChild(renderModelBlock(d, title));
-      }
-
-      // Internal processing (normalized text and importance) from the first model
-      const main = dataArray[0];
-      normEl.textContent = main.normalized_text || '';
-      renderImportance(main.importance);
-
-      resultCard.style.display = 'block';
-
-      // Add to history (only for standard predict, not tau-sweep)
-      if (!context || context !== 'tau-sweep') {
-        addToHistory({
-          text: textEl.value.trim(),
-          tau: parseFloat(tauEl.value),
-          model: modelTypeEl.value,
-          normalize: normalizeEl.checked,
-          compare: compareBothEl.checked,
-          labels: dataArray.map(d => d.pred_label),
-          setSizes: dataArray.map(d => (d.pred_set_size != null ? d.pred_set_size : (d.conformal_set || []).length))
-        });
-      }
-    }
-
-    // --- History handling ---
-    function addToHistory(entry) {
-      if (!entry || !entry.text) return;
-      predictionHistory.unshift({
-        ...entry,
-        timestamp: new Date().toISOString()
-      });
-      if (predictionHistory.length > MAX_HISTORY) {
-        predictionHistory.length = MAX_HISTORY;
-      }
-      renderHistory();
-    }
-
-    function renderHistory() {
-      historyList.innerHTML = '';
-      predictionHistory.forEach((h, idx) => {
-        const li = document.createElement('li');
-        li.className = 'history-item';
-
-        const mainRow = document.createElement('div');
-        mainRow.className = 'history-main';
-
-        const txt = document.createElement('span');
-        txt.className = 'history-text';
-        txt.textContent = h.text.length > 70 ? h.text.slice(0, 67) + '...' : h.text;
-
-        const metaShort = document.createElement('span');
-        metaShort.className = 'history-meta';
-        const tauVal = isNaN(h.tau) ? '?' : h.tau.toFixed(2);
-        const labelSummary = (h.labels || []).filter(Boolean).join(' / ');
-        metaShort.textContent = `${h.compare ? 'both models' : h.model} · τ=${tauVal} · ${labelSummary}`;
-
-        mainRow.appendChild(txt);
-        mainRow.appendChild(metaShort);
-
-        const metaRow = document.createElement('div');
-        metaRow.className = 'history-meta';
-        metaRow.textContent = `normalize=${h.normalize ? 'on' : 'off'}, set size(s)=${(h.setSizes || []).join('/')}`;
-
-        li.appendChild(mainRow);
-        li.appendChild(metaRow);
-
-        li.addEventListener('click', () => {
-          textEl.value = h.text;
-          tauEl.value = isNaN(h.tau) ? '0.50' : h.tau.toFixed(2);
-          tauSliderEl.value = isNaN(h.tau) ? '0.5' : h.tau.toString();
-          modelTypeEl.value = h.model;
-          normalizeEl.checked = h.normalize;
-          compareBothEl.checked = h.compare;
-          updateBatchSettingsNote();
-          predict();
-        });
-
-        historyList.appendChild(li);
-      });
-    }
-
-    // --- API calls ---
-    async function callPredictOnce(payload) {
-      const res = await fetch('/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        throw new Error('Prediction failed with status ' + res.status);
-      }
-      return res.json();
-    }
-
-    async function predict() {
-      errorEl.textContent = '';
-      batchSuccess.style.display = 'none';
-      tauSweepContainer.style.display = 'none';
-      const text = textEl.value.trim();
-      if (!text) {
-        errorEl.textContent = 'Please enter some Khmer text.';
-        return;
-      }
-
-      const tauVal = parseFloat(tauEl.value);
-      const basePayload = {
-        text,
-        tau: isNaN(tauVal) ? 0.5 : tauVal,
-        model_type: modelTypeEl.value,
-        normalize: normalizeEl.checked
-      };
-
-      btn.disabled = true;
-      btnLabel.textContent = 'Predicting...';
-
+    async function renderModelCard(path) {
       try {
-        const results = [];
-        if (compareBothEl.checked) {
-          const payloadBaseline = { ...basePayload, model_type: 'baseline' };
-          const payloadTransformer = { ...basePayload, model_type: 'transformer' };
-
-          const [resBaseline, resTransformer] = await Promise.all([
-            callPredictOnce(payloadBaseline).catch(e => ({ error: e })),
-            callPredictOnce(payloadTransformer).catch(e => ({ error: e }))
-          ]);
-
-          if (resBaseline.error && resTransformer.error) {
-            throw new Error('Prediction failed for both models. Check backend logs.');
-          }
-          if (!resBaseline.error) results.push(resBaseline);
-          if (!resTransformer.error) results.push(resTransformer);
-
-          if (!results.length) {
-            throw new Error('No successful prediction returned.');
-          }
-        } else {
-          const res = await callPredictOnce(basePayload);
-          results.push(res);
-        }
-
-        renderResults(results, 'standard');
-      } catch (e) {
-        console.error(e);
-        if (e instanceof TypeError) {
-          errorEl.textContent = 'Cannot reach API at /predict. Ensure the backend is running (e.g. run_demo_api.sh or Docker container).';
-        } else {
-          errorEl.textContent = e.message || 'Prediction failed.';
-        }
-      } finally {
-        btn.disabled = false;
-        btnLabel.textContent = 'Predict sentiment';
-      }
+        const data = await req(`/v1/models/card?model_dir=${encodeURIComponent(path)}`);
+        const m = data.metrics || {}; const test=m.test||{}; const val=m.val||{}; const cal=m.calibration||{};
+        const norm = data.normalization || {}; const tok = data.tokenizer_report || {};
+        let html = '';
+        html += `<div class="small">Path: <code>${data.path}</code></div>`;
+        html += '<div class="cols mt">';
+        html += '<div>'; // metrics block
+        html += '<div class="muted">Validation</div>';
+        html += `<div>Acc: ${val.eval_accuracy ?? val.accuracy ?? ''} · F1: ${val.eval_f1_macro ?? val.f1_macro ?? ''}</div>`;
+        html += '<div class="muted mt">Test</div>';
+        html += `<div>Acc: ${test.eval_accuracy ?? test.accuracy ?? ''} · F1: ${test.eval_f1_macro ?? test.f1_macro ?? ''}</div>`;
+        html += '<div class="muted mt">Calibration</div>';
+        html += `<div>Val ECE: ${cal.val?.ece ?? m.val_ece ?? ''} · Test ECE: ${cal.test?.ece ?? m.test_ece ?? ''}</div>`;
+        html += '</div>';
+        html += '<div>'; // artifacts block
+        if (data['val_reliability.png']) html += `<div><img class="thumb" src="${data['val_reliability.png']}" alt="val reliability" /></div>`;
+        if (data['test_reliability.png']) html += `<div class="mt"><img class="thumb" src="${data['test_reliability.png']}" alt="test reliability" /></div>`;
+        html += '</div>';
+        html += '</div>';
+        html += '<div class="sep"></div>';
+        html += '<div class="cols">';
+        html += `<div><div class="muted">Normalization flags</div><pre class="small">${JSON.stringify(norm, null, 2)}</pre></div>`;
+        html += `<div><div class="muted">Tokenizer report</div><pre class="small">${JSON.stringify(tok, null, 2)}</pre></div>`;
+        html += '</div>';
+        modelCard.innerHTML = html;
+      } catch(e){ modelCard.textContent = 'Failed to read model card: '+e.message; }
     }
 
-    async function predictBatch() {
-      batchError.textContent = '';
-      batchSuccess.style.display = 'none';
-      const lines = (batchInput.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      if (!lines.length) {
-        batchError.textContent = 'Please paste at least one line.';
-        return;
-      }
-      btnBatch.disabled = true;
-      const oldLabel = btnBatch.textContent;
-      btnBatch.textContent = 'Predicting...';
+    async function infer() {
+      inferErr.textContent=''; inferOut.innerHTML='';
+      const text = textEl.value.trim(); if(!text){ inferErr.textContent='Enter text'; return; }
       try {
-        const tauVal = parseFloat(tauEl.value);
-        const payload = lines.map(t => ({
-          text: t,
-          tau: isNaN(tauVal) ? 0.5 : tauVal,
-          model_type: modelTypeEl.value,
-          normalize: normalizeEl.checked
-        }));
-        const res = await fetch('/predict/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Batch prediction failed with status ' + res.status);
-        const data = await res.json();
+        const body = { items: [{ id:'1', text }], top_k: +topkEl.value||1, max_length: +maxlenEl.value||null };
+        const res = await req('/v1/infer', { method:'POST', body: JSON.stringify(body)});
+        const r = (res.results||[])[0]||{}; const probs = r.probs || {};
+        const left = document.createElement('div');
+        left.innerHTML = `<div class="muted">Label</div><div class="pill">${r.label||'?'} </div>`;
+        const right = document.createElement('div');
+        right.appendChild(probRow('NEG', probs.NEG||0));
+        right.appendChild(probRow('NEU', probs.NEU||0));
+        right.appendChild(probRow('POS', probs.POS||0));
+        inferOut.appendChild(left); inferOut.appendChild(right);
+      } catch(e){ inferErr.textContent='Inference failed: '+e.message; }
+    }
 
-        const header = ['text','normalized_text','pred_label','proba_POS','proba_NEG','proba_NEU','conformal_set','tau'];
-        const rows = [header.join(',')];
-        data.forEach(r => {
-          const probs = r.probabilities || {};
-          const row = [
-            JSON.stringify(r.text ?? ''),
-            JSON.stringify(r.normalized_text ?? ''),
-            JSON.stringify(r.pred_label ?? ''),
-            (probs.proba_POS ?? ''),
-            (probs.proba_NEG ?? ''),
-            (probs.proba_NEU ?? ''),
-            JSON.stringify((r.conformal_set || []).join('|')),
-            (r.tau ?? '')
-          ];
-          rows.push(row.join(','));
-        });
-        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'predictions.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        batchSuccess.textContent = `Downloaded predictions.csv with ${data.length} row(s).`;
-        batchSuccess.style.display = 'block';
-      } catch (e) {
-        console.error(e);
-        if (e instanceof TypeError) {
-          batchError.textContent = 'Cannot reach API at /predict/batch. Ensure the backend is running.';
-        } else {
-          batchError.textContent = e.message || 'Batch prediction failed.';
+    async function tokenize() {
+      tokOut.textContent=''; tokMeta.textContent=''; const text = textEl.value.trim(); if(!text) return;
+      try { const res = await req('/v1/tokenize', { method:'POST', body: JSON.stringify({ text, max_length: +maxlenEl.value||null })});
+        tokMeta.textContent = `seq_len=${res.seq_len} ${res.truncated? '(truncated)': ''}`;
+        tokOut.innerHTML = `<code>${(res.tokens||[]).join(' ')}</code>`;
+      } catch(e){ tokMeta.textContent='Tokenize failed: '+e.message; }
+    }
+
+    async function transform() {
+      const text=textEl.value.trim(); if(!text){ xText.textContent=''; return; }
+      try { origText.textContent=text; const body={ preset: presetEl.value, severity:+severityEl.value, prob:+probEl.value, texts:[text] };
+        const res = await req('/v1/stress/transform', { method:'POST', body: JSON.stringify(body)});
+        xText.textContent = (res.texts||[])[0]||'';
+      } catch(e){ xText.textContent = 'Transform failed: '+e.message; }
+    }
+
+    async function exportReport() {
+      exportMsg.textContent=''; try { const body={ glob: globEl.value||'models/*', out_dir: outdirEl.value||'reports/final' };
+        const res = await req('/v1/reports/export', { method:'POST', body: JSON.stringify(body)});
+        exportMsg.textContent = `Exported to ${res.out_dir} in ${res.seconds.toFixed(1)}s`; exportMsg.className='ok';
+      } catch(e){ exportMsg.textContent='Export failed: '+e.message; exportMsg.className='err'; }
+    }
+
+    async function browseReports() {
+      reportView.innerHTML=''; try { const dir = outdirEl.value || 'reports/final';
+        const res = await req(`/v1/reports/overview?dir=${encodeURIComponent(dir)}`);
+        let html = '';
+        if ((res.overall||[]).length) {
+          html += '<div class="muted">overall.csv</div><table class="table"><thead><tr>';
+          Object.keys(res.overall[0]).forEach(k=>{ html += `<th>${k}</th>`; }); html += '</tr></thead><tbody>';
+          res.overall.forEach(r=>{ html += '<tr>'; Object.keys(res.overall[0]).forEach(k=>{ html += `<td>${r[k]??''}</td>`; }); html += '</tr>'; });
+          html += '</tbody></table>';
         }
-      } finally {
-        btnBatch.disabled = false;
-        btnBatch.textContent = oldLabel;
-      }
-    }
-
-    // --- τ sweep ---
-    async function sweepTau() {
-      tauSweepContainer.style.display = 'none';
-      tauSweepContainer.innerHTML = '';
-      const text = textEl.value.trim();
-      if (!text) {
-        errorEl.textContent = 'Please enter some Khmer text before sweeping τ.';
-        return;
-      }
-      const model = modelTypeEl.value;
-      const normalize = normalizeEl.checked;
-      const currentTau = parseFloat(tauEl.value);
-      const tauGrid = [0.05, 0.1, 0.2, 0.4, 0.6, 0.8];
-
-      const rows = [];
-      try {
-        for (const t of tauGrid) {
-          const payload = {
-            text,
-            tau: t,
-            model_type: model,
-            normalize
-          };
-          const res = await callPredictOnce(payload);
-          rows.push({ tau: t, res });
+        if ((res.plots||[]).length) {
+          html += '<div class="sep"></div><div class="muted">plots</div>';
+          res.plots.forEach(p=>{ html += `<div class="mt"><img class="thumb" src="${p}" alt="plot" /></div>`; });
         }
-      } catch (e) {
-        console.error(e);
-        if (e instanceof TypeError) {
-          errorEl.textContent = 'Cannot reach API while sweeping τ. Ensure the backend is running.';
-        } else {
-          errorEl.textContent = e.message || 'τ sweep failed.';
-        }
-        return;
-      }
-
-      // Render table
-      const table = document.createElement('table');
-      table.className = 'tau-sweep-table';
-      const thead = document.createElement('thead');
-      thead.innerHTML = '<tr><th>τ</th><th>Pred label</th><th>Set</th><th>Set size</th><th>Max p</th><th>Entropy</th></tr>';
-      table.appendChild(thead);
-      const tbody = document.createElement('tbody');
-
-      rows.forEach(row => {
-        const { tau, res } = row;
-        const tr = document.createElement('tr');
-        const set = Array.isArray(res.conformal_set) ? res.conformal_set : [];
-        const setSize = res.pred_set_size != null ? res.pred_set_size : set.length;
-        const mp = res.max_proba != null && !isNaN(res.max_proba) ? (res.max_proba * 100).toFixed(1) + '%' : '';
-        const ent = res.entropy != null && !isNaN(res.entropy) ? res.entropy.toFixed(3) : '';
-
-        const tdTau = document.createElement('td');
-        tdTau.textContent = tau.toFixed(2);
-
-        const tdLabel = document.createElement('td');
-        tdLabel.textContent = res.pred_label || '';
-
-        const tdSet = document.createElement('td');
-        tdSet.textContent = set.join(', ');
-
-        const tdSize = document.createElement('td');
-        tdSize.textContent = String(setSize);
-
-        const tdMp = document.createElement('td');
-        tdMp.textContent = mp;
-
-        const tdEnt = document.createElement('td');
-        tdEnt.textContent = ent;
-
-        tr.appendChild(tdTau);
-        tr.appendChild(tdLabel);
-        tr.appendChild(tdSet);
-        tr.appendChild(tdSize);
-        tr.appendChild(tdMp);
-        tr.appendChild(tdEnt);
-
-        const cur = parseFloat(currentTau);
-        if (!isNaN(cur) && Math.abs(cur - tau) < 1e-6) {
-          tr.classList.add('tau-sweep-row-highlight');
-        }
-
-        tbody.appendChild(tr);
-      });
-
-      table.appendChild(tbody);
-      tauSweepContainer.innerHTML = '<strong>τ sweep on current input</strong>: effect of τ on prediction set and uncertainty.';
-      tauSweepContainer.appendChild(table);
-      tauSweepContainer.style.display = 'block';
-
-      // Note: we do not update main result from sweep; it's a separate diagnostic.
+        reportView.innerHTML = html || '<span class="muted">No report files found.</span>';
+      } catch(e){ reportView.textContent = 'Browse failed: '+e.message; }
     }
 
-    // --- Meta / API status ---
-    async function loadMeta() {
-      try {
-        const res = await fetch('/meta');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-
-        apiStatusDotEl.classList.remove('err');
-        apiStatusDotEl.classList.add('ok');
-        apiStatusTextEl.textContent = 'API online';
-
-        if (Array.isArray(data.supported_model_types)) {
-          if (!data.supported_model_types.includes('transformer')) {
-            [...modelTypeEl.options].forEach(opt => {
-              if (opt.value === 'transformer') opt.disabled = true;
-            });
-          }
-          if (data.default_model_type) {
-            modelTypeEl.value = data.default_model_type;
-          }
-        }
-        if (typeof data.default_normalize === 'boolean') {
-          normalizeEl.checked = data.default_normalize;
-        }
-      } catch (e) {
-        console.error(e);
-        apiStatusDotEl.classList.remove('ok');
-        apiStatusDotEl.classList.add('err');
-        apiStatusTextEl.textContent = 'API offline. Start backend (run_demo_api.sh / Docker).';
-      }
+    async function validateDataset() {
+      valOut.innerHTML=''; try { const body = { input_csv: valCsv.value, lang_column: valLang.value || null, group_column: valGroup.value || null, split_column: valSplit.value || null };
+        const res = await req('/v1/validate', { method:'POST', body: JSON.stringify(body)});
+        let html=''; html += '<div class="muted">Summary</div>'; html += `<pre class="small">${JSON.stringify(res.summary, null, 2)}</pre>`;
+        html += '<div class="muted">Issues</div>'; html += `<pre class="small">${JSON.stringify(res.issues, null, 2)}</pre>`; valOut.innerHTML = html;
+      } catch(e){ valOut.textContent = 'Validation failed: '+e.message; }
     }
 
-    // --- Example inputs and scenarios ---
-    const exampleTexts = {
-      positive: 'ខ្ញុំសប្បាយចិត្តណាស់ អរគុណច្រើន សេវាកម្មល្អបំផុត ❤️',
-      negative: 'សេវាកម្មអាក្រក់បំផុត មិនដែលវិញទៀតទេ 😡',
-      ambiguous: 'អរគុណណាស់ ទាន់ពេលគឺទាន់ពេល តែកុំធ្វើបែបនេះឡើងវិញទេ 🙄',
-      noisy: 'Service គឺ ok តិចតួច តម្លៃថ្លៃពេក 😂'
-    };
-
-    const scenarios = [
-      {
-        id: 'clear_pos',
-        label: 'Clear positive opinion',
-        description: 'High confidence, singleton prediction set (τ small).',
-        text: exampleTexts.positive,
-        model: 'transformer',
-        tau: 0.1
-      },
-      {
-        id: 'clear_neg',
-        label: 'Clear negative complaint',
-        description: 'High confidence negative sentiment.',
-        text: exampleTexts.negative,
-        model: 'baseline',
-        tau: 0.1
-      },
-      {
-        id: 'sarcastic',
-        label: 'Sarcastic / ambiguous',
-        description: 'Mixed cues, larger prediction set and higher entropy.',
-        text: exampleTexts.ambiguous,
-        model: 'transformer',
-        tau: 0.2
-      },
-      {
-        id: 'noisy_codeswitch',
-        label: 'Noisy / code-switching',
-        description: 'Shows robustness and uncertainty for code-switched input.',
-        text: exampleTexts.noisy,
-        model: 'transformer',
-        tau: 0.2
-      },
-      {
-        id: 'very_short',
-        label: 'Very short / vague',
-        description: 'Short text, possibly higher uncertainty.',
-        text: 'ល្អ',
-        model: 'baseline',
-        tau: 0.2
-      }
-    ];
-
-    function renderScenarios() {
-      scenarioContainer.innerHTML = '';
-      scenarios.forEach(s => {
-        const div = document.createElement('div');
-        div.className = 'scenario-item';
-        const title = document.createElement('div');
-        title.className = 'scenario-title';
-        title.textContent = s.label;
-        const desc = document.createElement('div');
-        desc.className = 'scenario-desc';
-        desc.textContent = s.description;
-        div.appendChild(title);
-        div.appendChild(desc);
-        div.addEventListener('click', () => applyScenario(s));
-        scenarioContainer.appendChild(div);
-      });
+    async function computeIAA() {
+      iaaOut.innerHTML=''; try { const body = { input_csv: iaaCsv.value, lang_column: iaaLang.value || null };
+        const res = await req('/v1/iaa', { method:'POST', body: JSON.stringify(body)});
+        iaaOut.innerHTML = `<pre class="small">${JSON.stringify(res, null, 2)}</pre>`;
+      } catch(e){ iaaOut.textContent = 'IAA failed: '+e.message; }
     }
 
-    function applyScenario(s) {
-      if (!s) return;
-      textEl.value = s.text;
-      modelTypeEl.value = s.model;
-      tauEl.value = s.tau.toFixed(2);
-      tauSliderEl.value = s.tau.toString();
-      normalizeEl.checked = true;
-      updateBatchSettingsNote();
-      predict();
-    }
+    // Event bindings
+    btnLoad.addEventListener('click', selectModel);
+    btnInfer.addEventListener('click', infer);
+    btnTokenize.addEventListener('click', tokenize);
+    btnTransform.addEventListener('click', transform);
+    btnExport.addEventListener('click', exportReport);
+    btnBrowse.addEventListener('click', browseReports);
+    btnValidate.addEventListener('click', validateDataset);
+    btnIAA.addEventListener('click', computeIAA);
 
-    function applyExample(type) {
-      const txt = exampleTexts[type];
-      if (!txt) return;
-      textEl.value = txt;
-      predict();
-    }
-
-    // --- Collapsible toggle handlers ---
-    function setupCollapsible(id, bodyEl, labelEl) {
-      const root = document.getElementById(id);
-      if (!root) return;
-      const header = root.querySelector('.collapsible-header');
-      if (!header) return;
-      header.addEventListener('click', () => {
-        const isHidden = bodyEl.style.display === 'none';
-        bodyEl.style.display = isHidden ? 'block' : 'none';
-        labelEl.textContent = isHidden ? 'Hide' : 'Show';
-      });
-    }
-
-    // --- Sync tau number & slider ---
-    function syncTauFromNumber() {
-      let v = parseFloat(tauEl.value);
-      if (isNaN(v)) v = 0.5;
-      v = Math.min(1, Math.max(0, v));
-      tauEl.value = v.toFixed(2);
-      tauSliderEl.value = v.toString();
-      updateBatchSettingsNote();
-    }
-    function syncTauFromSlider() {
-      let v = parseFloat(tauSliderEl.value);
-      if (isNaN(v)) v = 0.5;
-      v = Math.min(1, Math.max(0, v));
-      tauEl.value = v.toFixed(2);
-      updateBatchSettingsNote();
-    }
-
-    function updateBatchSettingsNote() {
-      const tauVal = parseFloat(tauEl.value);
-      const tauText = isNaN(tauVal) ? '?' : tauVal.toFixed(2);
-      const normText = normalizeEl.checked ? 'on' : 'off';
-      batchSettingsNote.textContent = `Current settings for batch: model = ${modelTypeEl.value}, τ = ${tauText}, normalize = ${normText}.`;
-    }
-
-    function applySampleBatch() {
-      const lines = [
-        exampleTexts.positive,
-        exampleTexts.negative,
-        exampleTexts.ambiguous,
-        exampleTexts.noisy
-      ].filter(Boolean);
-      batchInput.value = lines.join('\n');
-    }
-
-    // --- Event listeners ---
-    btn.addEventListener('click', predict);
-    textEl.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        predict();
-      }
-    });
-
-    btnBatch.addEventListener('click', predictBatch);
-    btnBatchSample.addEventListener('click', applySampleBatch);
-    btnTauSweep.addEventListener('click', sweepTau);
-
-    document.querySelectorAll('.example-bar button[data-example]').forEach(btnEx => {
-      const type = btnEx.getAttribute('data-example');
-      btnEx.addEventListener('click', () => applyExample(type));
-    });
-
-    tauEl.addEventListener('change', syncTauFromNumber);
-    tauEl.addEventListener('blur', syncTauFromNumber);
-    tauSliderEl.addEventListener('input', syncTauFromSlider);
-
-    modelTypeEl.addEventListener('change', updateBatchSettingsNote);
-    normalizeEl.addEventListener('change', updateBatchSettingsNote);
-
-    setupCollapsible('normalizedCollapsible', normalizedBody, normalizedToggleLabel);
-    setupCollapsible('importanceCollapsible', importanceBody, importanceToggleLabel);
-    setupCollapsible('legendCollapsible', legendBody, legendToggleLabel);
-
-    // --- Init ---
-    loadMeta();
-    syncTauFromNumber();
-    updateBatchSettingsNote();
-    renderScenarios();
+    // Init
+    loadModels();
   </script>
 </body>
 </html>
