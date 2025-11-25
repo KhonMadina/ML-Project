@@ -40,18 +40,34 @@ annotation/sample_data/final_val.csv
 annotation/sample_data/final_test.csv
 annotation/sample_data/pred_*.csv
 
-# Model artifacts
+# Model artifacts (local)
 models/
 !models/.gitkeep
+# Training runs and outputs
+runs/
 
 # Reports and generated analysis
 reports/
 !reports/.gitkeep
+# Aggregated final reports
+reports/final/
 
 # Tokenizers and transformers output dirs
 **/tokenizers/
 **/tokenizer_*/
 **/transformer_*/
+# Hugging Face cache and artifacts
+**/pytorch_model.bin
+**/tf_model.h5
+**/rust_model.ot
+**/tokenizer.json
+**/special_tokens_map.json
+**/tokenizer_config.json
+**/config.json
+**/spiece.model
+**/merges.txt
+**/vocab.json
+**/sentencepiece.*
 
 # Cache from tools and experiments
 .cache/
@@ -67,6 +83,9 @@ node_modules/
 
 # VSCode Python debugging
 .pytest_cache/
+# Datasets cache
+**/datasets_cache/
+**/.datasets/
 
 # Coverage
 .coverage
@@ -114,12 +133,14 @@ prof/
 .pre-commit-config.yaml
 
 # Miscellaneous
-*.bak    
+*.bak
 *.orig
-modeling/utils/__pycache__/__init__.cpython-313.pyc
-annotation/__pycache__/adjudicate.cpython-313.pyc
-reports/baseline_chargram/error_analysis_metrics.json
-*/__pycache__/text_normalization.cpython-313.pyc
-modeling/__pycache__/text_normalization.cpython-313.pyc
-modeling/__pycache__/text_normalization.cpython-313.pyc
-modeling/__pycache__/__init__.cpython-313.pyc
+# Python caches (generic)
+**/__pycache__/
+**/*.py[cod]
+# Local error analysis and prediction dumps
+**/error_analysis/*.json
+**/pred_*.csv
+# API/Server temp
+**/*.pid
+**/.cache/

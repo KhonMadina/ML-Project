@@ -41,6 +41,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .utils.device import get_device
+# Limit PyTorch CPU thread usage to reduce instability on Windows without MKL/OpenMP issues
+try:
+    torch.set_num_threads(1)
+except Exception:
+    pass
 
 try:
     import pandas as pd  # type: ignore
@@ -73,6 +78,8 @@ except Exception as e:
 # Prefer explicit Trainer.report_to over global WANDB_DISABLED env flags
 os.environ.setdefault("WANDB_DISABLED", "true")
 os.environ.setdefault("WANDB_MODE", "disabled")
+# Disable parallelism in HuggingFace tokenizers on Windows to avoid crashes
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 from .text_normalization import (
     build_norm_config_from_args,
@@ -224,14 +231,18 @@ class WeightedFocalTrainer(Trainer):
         self.focal_loss = bool(focal_loss)
         self.focal_gamma = float(focal_gamma)
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs: bool = False, num_items_in_batch: int | None = None, **kwargs):
+        """Custom loss supporting class weights and focal loss.
+
+        Transformers may pass extra keyword arguments (e.g., num_items_in_batch) to compute_loss.
+        Accept them for compatibility and ignore if unused.
+        """
         labels = inputs.get("labels")
+        # Exclude labels when forwarding through the model
         outputs = model(**{k: v for k, v in inputs.items() if k != "labels"})
         logits = outputs["logits"]
-        if self.class_weights is not None:
-            cw = self.class_weights.to(logits.device)
-        else:
-            cw = None
+        # Resolve class weights tensor if provided
+        cw = self.class_weights.to(logits.device) if self.class_weights is not None else None
         if self.focal_loss:
             # Focal loss on probabilities; numerical stability by log-softmax
             logp = F.log_softmax(logits, dim=-1)
@@ -491,6 +502,7 @@ def main() -> None:
         max_grad_norm=1.0,
         use_cpu=not dev_ctx.is_cuda,
         report_to=report_to,
+        dataloader_num_workers=0,
     )
 
     # Class weighting / focal loss

@@ -7,6 +7,11 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+# Stability on Windows/CPU: reduce thread contention and tokenizer parallelism
+export TOKENIZERS_PARALLELISM=false
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+
 DATA_DIR="annotation/sample_data"
 OUT_ROOT="runs"
 BASELINE_DIR="${OUT_ROOT}/baseline_chargram"
@@ -71,10 +76,10 @@ python -m modeling.train_transformer \
   --input "${DATA_DIR}/final_dataset.csv" \
   --use_splits \
   --output_dir "${TRANSFORMER_DIR}" \
-  --model_name xlm-roberta-base \
+  --model_name distilbert-base-multilingual-cased \
   --lang_column lang --langs "${ALLOWED_LANGS[@]}" --stratify_by_lang \
-  --epochs 1 --batch_size 4 --grad_accum 1 --lr 5e-5 \
-  --experiment_name transformer_xlmr_bilingual \
+  --epochs 1 --batch_size 2 --grad_accum 1 --lr 5e-5 --max_length 128 \
+  --experiment_name transformer_mbert_distil_cpu_safe \
   --tracking none \
   --seed ${SEED} \
   --normalize_all || echo "Warn: transformer training failed"
