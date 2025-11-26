@@ -18,23 +18,65 @@ import json
 import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+def file_url(path: Path) -> str:
+    try:
+        rel = path.relative_to(ROOT_DIR)
+    except Exception:
+        rel = path
+    return "/files/" + str(rel).replace("\\", "/")
 
 # Project imports
 from modeling.text_normalization import load_norm_config, normalize_corpus
 from modeling import stress_eval as stress
 
 app = FastAPI(title="Khmer+English Sentiment API", version="1.1.0")
+
+# CORS: allow local dev origins by default; override via API_CORS_ORIGINS env (comma-separated)
+_default_origins = [
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+]
+_env_origins = os.getenv("API_CORS_ORIGINS", "").strip()
+_allow_origins = [o.strip() for o in _env_origins.split(",") if o.strip()] if _env_origins else _default_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
+    allow_origins=_allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+# Serve project root files (models artifacts, reports, etc.) under /files
+app.mount("/files", StaticFiles(directory=str(ROOT_DIR)), name="files")
+
+# Basic logging setup
+logger = logging.getLogger("khmer_sentiment_api")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
+
+# Limits and configuration via environment
+MAX_TEXT_LEN = int(os.getenv("API_MAX_TEXT_LEN", "4000"))
+MAX_BATCH_SIZE = int(os.getenv("API_MAX_BATCH_SIZE", "128"))
+INFER_BATCH_SIZE = int(os.getenv("API_INFER_BATCH_SIZE", "32"))
+
+# Catch-all exception handler to avoid silent 500s and provide structured error
+@app.exception_handler(Exception)
+async def _unhandled_exc(request: Request, exc: Exception):  # type: ignore[override]
+    logger.exception("Unhandled exception during %s %s", request.method, request.url.path)
+    detail = str(exc) if os.getenv("API_DEBUG", "0").strip() == "1" else "internal server error"
+    return JSONResponse(status_code=500, content={"error": "internal_error", "message": detail})
 
 
 class CurrentModel:
@@ -44,6 +86,7 @@ class CurrentModel:
         self.vectorizer = None
         self.model = None
         self.tokenizer = None
+        self.device = None
         self.norm_cfg: Optional[Dict[str, Any]] = None
         self.label_order: List[str] = ["POS", "NEG", "NEU"]
 
@@ -53,29 +96,39 @@ class CurrentModel:
         self.vectorizer = None
         self.model = None
         self.tokenizer = None
+        self.device = None
         self.norm_cfg = None
 
     def load(self, model_dir: Path):
         vec_p = model_dir / "vectorizer.pkl"
         mdl_p = model_dir / "model.pkl"
+        tfm_cfg = model_dir / "config.json"
+        tfm_bin = model_dir / "pytorch_model.bin"
         if vec_p.exists() and mdl_p.exists():
             import joblib
             self.vectorizer = joblib.load(vec_p)
             self.model = joblib.load(mdl_p)
             self.tokenizer = None
+            self.device = None
             self.mode = "baseline"
-        else:
+        elif tfm_cfg.exists() or tfm_bin.exists():
             try:
                 from transformers import AutoTokenizer, AutoModelForSequenceClassification  # type: ignore
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Transformers not available: {e}")
+                raise HTTPException(status_code=400, detail=f"Transformer model selected but transformers is not installed: {e}")
             try:
+                import torch  # type: ignore
                 self.tokenizer = AutoTokenizer.from_pretrained(str(model_dir), use_fast=True)
                 self.model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
                 self.vectorizer = None
                 self.mode = "transformer"
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                self.model = self.model.to(self.device)
+                self.model.eval()
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Unable to load model from {model_dir}: {e}")
+                raise HTTPException(status_code=400, detail=f"Unable to load transformer model from {model_dir}: {e}")
+        else:
+            raise HTTPException(status_code=400, detail=f"No supported model artifacts found in: {model_dir}")
         self.model_dir = model_dir
         self.norm_cfg = load_norm_config(model_dir)
 
@@ -108,30 +161,45 @@ class CurrentModel:
         elif self.mode == "transformer":
             import torch
             import numpy as np
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.model = self.model.to(device)
+            device = self.device or (torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            self.model.eval()
             out = []
-            for i in range(0, len(texts), 32):
-                batch = texts[i:i+32]
-                enc = self.tokenizer(batch, padding=True, truncation=True, max_length=max_length or self.tokenizer.model_max_length, return_tensors="pt")
-                truncated_flags = None
+            bs = max(1, int(INFER_BATCH_SIZE))
+            for i in range(0, len(texts), bs):
+                batch = texts[i:i+bs]
+                enc = self.tokenizer(
+                    batch,
+                    padding=True,
+                    truncation=True,
+                    max_length=max_length or self.tokenizer.model_max_length,
+                    return_tensors="pt",
+                )
                 try:
-                    truncated_flags = [len(ids) >= (max_length or self.tokenizer.model_max_length) for ids in enc["input_ids"].tolist()]
+                    truncated_flags = [
+                        len(ids) >= (max_length or self.tokenizer.model_max_length) for ids in enc["input_ids"].tolist()
+                    ]
                 except Exception:
                     truncated_flags = [None] * len(batch)
                 enc = {k: v.to(device) for k, v in enc.items()}
                 with torch.no_grad():
                     logits = self.model(**enc).logits
                     probs = torch.softmax(logits, dim=-1).cpu().numpy()
-                    top_idx = np.argsort(-probs, axis=1)[:, :top_k]
+                # Efficient top-k using argpartition
+                k = int(top_k)
                 for j, text in enumerate(batch):
-                    top = [(self._label_from_idx(int(idx)), float(probs[j][idx])) for idx in top_idx[j]]
+                    row = probs[j]
+                    if k >= row.shape[0]:
+                        idxs = np.argsort(-row)
+                    else:
+                        idxs = np.argpartition(-row, kth=k - 1)[:k]
+                        idxs = idxs[np.argsort(-row[idxs])]
+                    top = [(self._label_from_idx(int(idx)), float(row[idx])) for idx in idxs]
                     out.append({
                         "label": top[0][0],
                         "top": [{"label": l, "prob": p} for l, p in top],
-                        "probs": {self._label_from_idx(k): float(v) for k, v in enumerate(probs[j])},
+                        "probs": {self._label_from_idx(k2): float(v) for k2, v in enumerate(row)},
                         "tokens": None,
-                        "seq_len": int(enc["input_ids"][j].shape[0]) if hasattr(enc["input_ids"], "shape") else None,
+                        "seq_len": int(enc["input_ids"][j].shape[-1]) if hasattr(enc["input_ids"], "shape") else None,
                         "truncated": truncated_flags[j] if truncated_flags is not None else None,
                     })
             return out
@@ -175,10 +243,14 @@ class InferRequest(BaseModel):
     top_k: int = Field(default=1, ge=1, le=5)
     max_length: Optional[int] = None
 
+class TopKItem(BaseModel):
+    label: str
+    prob: float
+
 class InferResponseItem(BaseModel):
     id: Optional[str]
     label: str
-    top: List[Dict[str, float]]
+    top: List[TopKItem]
     probs: Optional[Dict[str, float]]
     tokens: Optional[List[str]]
     seq_len: Optional[int]
@@ -247,8 +319,25 @@ def health():
         "status": "ok",
         "model_dir": str(CURRENT.model_dir) if CURRENT.model_dir else None,
         "mode": CURRENT.mode,
+        "device": str(CURRENT.device) if getattr(CURRENT, "device", None) is not None else None,
     }
 
+# Serve demo UI at root to avoid CORS when opened via API host:port
+@app.get("/", response_class=HTMLResponse)
+def root_ui():
+    ui_path = ROOT_DIR / "demo_ui.html"
+    if ui_path.exists():
+        return HTMLResponse(ui_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Khmer Sentiment Analysis</h1><p>demo_ui.html not found.</p>", status_code=200)
+
+
+@app.get("/v1/debug/status")
+def debug_status():
+    return {
+        "model_loaded": CURRENT.mode is not None,
+        "mode": CURRENT.mode,
+        "model_dir": str(CURRENT.model_dir) if CURRENT.model_dir else None,
+    }
 
 @app.get("/v1/models")
 def list_models():
@@ -299,7 +388,8 @@ def model_card(model_dir: Optional[str] = None):
     except Exception:
         data["tokenizer_report"] = {}
     for fn in ["val_reliability.png", "test_reliability.png"]:
-        data[fn] = str((p / fn)) if (p / fn).exists() else None
+        fp = p / fn
+        data[fn] = file_url(fp) if fp.exists() else None
     return data
 
 
@@ -317,28 +407,58 @@ def select_model(req: SelectModelRequest):
 def infer(req: InferRequest):
     if CURRENT.mode is None:
         raise HTTPException(status_code=400, detail="No model loaded; call /v1/models/select first")
-    texts = [it.text for it in req.items]
-    results = CURRENT.predict_batch(texts, max_length=req.max_length, top_k=req.top_k)
+    if not req.items or len(req.items) == 0:
+        raise HTTPException(status_code=400, detail="Request must include at least one item")
+    if len(req.items) > MAX_BATCH_SIZE:
+        raise HTTPException(status_code=400, detail=f"too many items in request (>{MAX_BATCH_SIZE})")
+    texts = [it.text.strip() if it and it.text is not None else "" for it in req.items]
+    if any(t == "" for t in texts):
+        raise HTTPException(status_code=400, detail="All items must include non-empty text")
+    if any(len(t) > MAX_TEXT_LEN for t in texts):
+        raise HTTPException(status_code=400, detail=f"text too long; max {MAX_TEXT_LEN} characters")
+    try:
+        results = CURRENT.predict_batch(texts, max_length=req.max_length, top_k=req.top_k)
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Convert unexpected inference errors to 400 with message when API_DEBUG=1, or generic otherwise
+        dbg = os.getenv("API_DEBUG", "0").strip() == "1"
+        msg = f"inference failed: {e}" if dbg else "inference failed"
+        raise HTTPException(status_code=400, detail=msg)
     out_items: List[InferResponseItem] = []
     for it, res in zip(req.items, results):
         out_items.append(InferResponseItem(
             id=it.id,
-            label=res["label"],
+            label=res.get("label", ""),
             top=res.get("top", []),
             probs=res.get("probs"),
             tokens=res.get("tokens"),
             seq_len=res.get("seq_len"),
             truncated=res.get("truncated"),
         ))
-    return {"model_dir": str(CURRENT.model_dir), "mode": CURRENT.mode, "results": [i.dict() for i in out_items]}
+    results_serialized = [i.model_dump() if hasattr(i, "model_dump") else i.dict() for i in out_items]
+    return {"model_dir": str(CURRENT.model_dir), "mode": CURRENT.mode, "results": results_serialized}
 
 
 @app.post("/v1/tokenize")
 def tokenize(req: TokenizeRequest):
     if CURRENT.mode is None:
         raise HTTPException(status_code=400, detail="No model loaded")
-    return CURRENT.tokenize(req.text, max_length=req.max_length)
+    if not req.text or not str(req.text).strip():
+        raise HTTPException(status_code=400, detail="text is required")
+    try:
+        return CURRENT.tokenize(req.text, max_length=req.max_length)
+    except HTTPException:
+        raise
+    except Exception as e:
+        dbg = os.getenv("API_DEBUG", "0").strip() == "1"
+        msg = f"tokenize failed: {e}" if dbg else "tokenize failed"
+        raise HTTPException(status_code=400, detail=msg)
 
+
+@app.get("/v1/stress/presets")
+def stress_presets():
+    return {"presets": sorted(list(stress.PRESETS.keys()))}
 
 @app.post("/v1/stress/transform")
 def stress_transform(req: StressTransformRequest):
@@ -353,7 +473,11 @@ def stress_transform(req: StressTransformRequest):
 def stress_eval(req: StressEvalRequest):
     if CURRENT.mode is None:
         raise HTTPException(status_code=400, detail="No model loaded; call /v1/models/select first")
+    if len(req.items) > MAX_BATCH_SIZE:
+        raise HTTPException(status_code=400, detail=f"too many items in request (>{MAX_BATCH_SIZE})")
     rows = [{"id": it.id, "text": it.text, "label": it.label.upper(), "category": it.category or "overall"} for it in req.items]
+    if any(len(r["text"]) > MAX_TEXT_LEN for r in rows):
+        raise HTTPException(status_code=400, detail=f"text too long; max {MAX_TEXT_LEN} characters")
     texts = [r["text"] for r in rows]
     if CURRENT.norm_cfg:
         texts = normalize_corpus(texts, CURRENT.norm_cfg)
@@ -420,7 +544,7 @@ def reports_overview(dir: str = "reports/final"):
     out["calibration"] = read_csv(base / "calibration.csv")
     # List plots
     plots_dir = base / "plots"
-    out["plots"] = [str(p) for p in plots_dir.glob("*.png")] if plots_dir.exists() else []
+    out["plots"] = [file_url(p) for p in plots_dir.glob("*.png")] if plots_dir.exists() else []
     return out
 
 

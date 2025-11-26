@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Khmer+English Sentiment Control Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #f7f7fb; color: #0f172a; }
+    header { background: #0f172a; color: #fff; padding: 1rem 1.25rem; }
+    header h1 { margin: 0; font-size: 1.2rem; }
+    header p { margin: .25rem 0 0; font-size: .9rem; opacity: .85; }
+    main { max-width: 1200px; margin: 1.1rem auto 2rem; padding: 0 1rem; }
+    .grid { display: grid; grid-template-columns: 1.1fr 1.3fr; gap: 1rem; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 2px 6px rgba(16,24,40,.06); padding: 1rem 1.2rem; }
+    .title { font-size: .95rem; text-transform: uppercase; color: #64748b; letter-spacing: .08em; margin: 0 0 .3rem; }
+    .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+    select, input[type="text"], input[type="number"], textarea { border: 1px solid #d1d5db; border-radius: 8px; padding: .45rem .55rem; font-size: .92rem; background: #f8fafc; }
+    textarea { width: 100%; min-height: 110px; resize: vertical; }
+    button { background: #2563eb; border: none; color: #fff; padding: .5rem 1.0rem; border-radius: 999px; cursor: pointer; font-size: .9rem; }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+    .btn-secondary { background: #e5e7eb; color: #111827; }
+    .muted { color: #6b7280; font-size: .85rem; }
+    .pill { display: inline-flex; align-items: center; gap: .35rem; padding: .15rem .5rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: .78rem; }
+    .small { font-size: .82rem; }
+    .list { list-style: none; padding: 0; margin: .25rem 0 0; }
+    .list li { padding: .25rem 0; border-bottom: 1px solid #f1f5f9; }
+    .prob { display: grid; grid-template-columns: 44px 1fr 52px; gap: .45rem; align-items: center; font-size: .85rem; }
+    .bar { width: 100%; height: .55rem; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .fill { height: 100%; background: #2563eb; }
+    .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+    @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+    img.thumb { max-width: 100%; border: 1px solid #e5e7eb; border-radius: 8px; }
+    .err { color: #b91c1c; font-size: .85rem; margin-top: .35rem; }
+    .ok { color: #15803d; font-size: .85rem; margin-top: .35rem; }
+    .sep { border-top: 1px solid #e5e7eb; margin: .8rem 0; }
+    .table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .table th, .table td { border-bottom: 1px solid #e5e7eb; padding: .35rem .4rem; text-align: left; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Khmer+English Sentiment Control Panel</h1>
+    <p>Bilingual inference, stress testing, dataset validation, IAA, and reporting.</p>
+  </header>
+
+  <main>
+    <div class="grid">
+      <section class="card">
+        <div class="title">Model management</div>
+        <div class="row">
+          <select id="modelSelect"></select>
+          <button id="btnLoad">Load</button>
+          <span id="modelStatus" class="muted">No model loaded</span>
+        </div>
+        <div class="sep"></div>
+        <div class="title">Model card</div>
+        <div id="modelCard" class="small"></div>
+      </section>
+
+      <section class="card">
+        <div class="title">Inference</div>
+        <textarea id="text" placeholder="Enter Khmer/English text..."></textarea>
+        <div class="row">
+          <label class="small">Top-K <input type="number" id="topk" min="1" max="5" value="3" style="width:70px;" /></label>
+          <label class="small">Max length <input type="number" id="maxlen" min="32" max="512" value="192" style="width:80px;" /></label>
+          <button id="btnInfer">Predict</button>
+        </div>
+        <div id="inferErr" class="err"></div>
+        <div id="inferOut" class="cols mt"></div>
+        <div class="sep"></div>
+        <div class="title">Tokenization preview (transformers)</div>
+        <div class="row">
+          <button id="btnTokenize" class="btn-secondary">Preview tokens</button>
+          <span id="tokMeta" class="muted"></span>
+        </div>
+        <div id="tokOut" class="small"></div>
+      </section>
+    </div>
+
+    <div class="grid" style="margin-top:1rem;">
+      <section class="card">
+        <div class="title">Stress transforms</div>
+        <div class="row">
+          <select id="preset">
+            <option value="diacritics">diacritics</option>
+            <option value="zero_width">zero_width</option>
+            <option value="emoji_burst">emoji_burst</option>
+            <option value="elongation">elongation</option>
+            <option value="mixed_script">mixed_script</option>
+            <option value="code_switch">code_switch</option>
+            <option value="latinized_khmer">latinized_khmer</option>
+          </select>
+          <label class="small">Severity <input type="number" id="severity" min="0" max="1" step="0.1" value="0.5" style="width:80px;" /></label>
+          <label class="small">Prob <input type="number" id="prob" min="0" max="1" step="0.1" value="0.7" style="width:80px;" /></label>
+          <button id="btnTransform" class="btn-secondary">Transform</button>
+        </div>
+        <div class="small mt"><strong>Original</strong><div id="origText" class="muted"></div></div>
+        <div class="small mt"><strong>Transformed</strong><div id="xText"></div></div>
+      </section>
+
+      <section class="card">
+        <div class="title">Reports</div>
+        <div class="row">
+          <input type="text" id="glob" placeholder="models/*" style="min-width:200px;" />
+          <input type="text" id="outdir" placeholder="reports/final" style="min-width:200px;" />
+          <button id="btnExport">Export</button>
+          <button id="btnBrowse" class="btn-secondary">Browse</button>
+        </div>
+        <div id="exportMsg" class="small mt"></div>
+        <div id="reportView" class="small mt"></div>
+      </section>
+    </div>
+
+    <div class="grid" style="margin-top:1rem;">
+      <section class="card">
+        <div class="title">Dataset validation</div>
+        <div class="row">
+          <input type="text" id="valCsv" placeholder="annotation/sample_data/final_dataset.csv" style="min-width:320px;" />
+          <input type="text" id="valLang" placeholder="lang" style="width:120px;" />
+          <input type="text" id="valGroup" placeholder="group" style="width:120px;" />
+          <input type="text" id="valSplit" placeholder="split" style="width:120px;" />
+          <button id="btnValidate" class="btn-secondary">Validate</button>
+        </div>
+        <div id="valOut" class="small mt"></div>
+      </section>
+
+      <section class="card">
+        <div class="title">IAA (Cohen's kappa)</div>
+        <div class="row">
+          <input type="text" id="iaaCsv" placeholder="annotation/annotations_raw.csv" style="min-width:320px;" />
+          <input type="text" id="iaaLang" placeholder="lang" style="width:120px;" />
+          <button id="btnIAA" class="btn-secondary">Compute</button>
+        </div>
+        <div id="iaaOut" class="small mt"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+
+    const __API_BASE = 'http://127.0.0.1:8000';
+    function __withBase(u){ try{ if(typeof u==='string' && u.startsWith('/')) return __API_BASE + u; }catch(e){} return u; }
+
+    async function req(url, opts={}) { const r = await fetch(__withBase(url), { headers: { 'Content-Type': 'application/json' }, ...opts }); if (!r.ok) throw new Error(`${url} -> ${r.status}`); return r.json(); }
+    const els = id => document.getElementById(id);
+
+    const modelSelect = els('modelSelect');
+    const btnLoad = els('btnLoad');
+    const modelStatus = els('modelStatus');
+    const modelCard = els('modelCard');
+
+    const textEl = els('text');
+    const topkEl = els('topk');
+    const maxlenEl = els('maxlen');
+    const btnInfer = els('btnInfer');
+    const inferErr = els('inferErr');
+    const inferOut = els('inferOut');
+
+    const btnTokenize = els('btnTokenize');
+    const tokOut = els('tokOut');
+    const tokMeta = els('tokMeta');
+
+    const presetEl = els('preset');
+    const severityEl = els('severity');
+    const probEl = els('prob');
+    const btnTransform = els('btnTransform');
+    const origText = els('origText');
+    const xText = els('xText');
+
+    const globEl = els('glob');
+    const outdirEl = els('outdir');
+    const btnExport = els('btnExport');
+    const btnBrowse = els('btnBrowse');
+    const exportMsg = els('exportMsg');
+    const reportView = els('reportView');
+
+    const valCsv = els('valCsv');
+    const valLang = els('valLang');
+    const valGroup = els('valGroup');
+    const valSplit = els('valSplit');
+    const btnValidate = els('btnValidate');
+    const valOut = els('valOut');
+
+    const iaaCsv = els('iaaCsv');
+    const iaaLang = els('iaaLang');
+    const btnIAA = els('btnIAA');
+    const iaaOut = els('iaaOut');
+
+    function probRow(label, p) {
+      const row = document.createElement('div'); row.className = 'prob';
+      const name = document.createElement('div'); name.textContent = label.toUpperCase();
+      const bar = document.createElement('div'); bar.className = 'bar';
+      const fill = document.createElement('div'); fill.className = 'fill'; fill.style.width = Math.round((p||0)*100) + '%';
+      bar.appendChild(fill);
+      const val = document.createElement('div'); val.textContent = (p!=null? (p*100).toFixed(1)+'%':'' ); val.style.textAlign='right';
+      row.appendChild(name); row.appendChild(bar); row.appendChild(val); return row;
+    }
+
+    async function loadModels() {
+      try { const data = await req('/v1/models'); modelSelect.innerHTML=''; (data.models||[]).forEach(m=>{ const opt=document.createElement('option'); opt.value=m.path; opt.textContent=`${m.name} [${m.type}]` + (m.test_f1_macro!=null?` · F1=${(+m.test_f1_macro).toFixed(3)}`:''); modelSelect.appendChild(opt); }); }
+      catch(e){ modelStatus.textContent='Failed to list models'; }
+    }
+
+    async function selectModel() {
+      const path = modelSelect.value; if (!path) return;
+      try { const res = await req('/v1/models/select', { method:'POST', body: JSON.stringify({ model_dir: path })}); modelStatus.textContent = `Loaded ${res.mode} · ${res.model_dir}`; await renderModelCard(path); }
+      catch(e){ modelStatus.textContent = 'Load failed: '+e.message; }
+    }
+
+    async function renderModelCard(path) {
+      try {
+        const data = await req(`/v1/models/card?model_dir=${encodeURIComponent(path)}`);
+        const m = data.metrics || {}; const test=m.test||{}; const val=m.val||{}; const cal=m.calibration||{};
+        const norm = data.normalization || {}; const tok = data.tokenizer_report || {};
+        let html = '';
+        html += `<div class="small">Path: <code>${data.path}</code></div>`;
+        html += '<div class="cols mt">';
+        html += '<div>'; // metrics block
+        html += '<div class="muted">Validation</div>';
+        html += `<div>Acc: ${val.eval_accuracy ?? val.accuracy ?? ''} · F1: ${val.eval_f1_macro ?? val.f1_macro ?? ''}</div>`;
+        html += '<div class="muted mt">Test</div>';
+        html += `<div>Acc: ${test.eval_accuracy ?? test.accuracy ?? ''} · F1: ${test.eval_f1_macro ?? test.f1_macro ?? ''}</div>`;
+        html += '<div class="muted mt">Calibration</div>';
+        html += `<div>Val ECE: ${cal.val?.ece ?? m.val_ece ?? ''} · Test ECE: ${cal.test?.ece ?? m.test_ece ?? ''}</div>`;
+        html += '</div>';
+        html += '<div>'; // artifacts block
+        if (data['val_reliability.png']) html += `<div><img class="thumb" src="${data['val_reliability.png']}" alt="val reliability" /></div>`;
+        if (data['test_reliability.png']) html += `<div class="mt"><img class="thumb" src="${data['test_reliability.png']}" alt="test reliability" /></div>`;
+        html += '</div>';
+        html += '</div>';
+        html += '<div class="sep"></div>';
+        html += '<div class="cols">';
+        html += `<div><div class="muted">Normalization flags</div><pre class="small">${JSON.stringify(norm, null, 2)}</pre></div>`;
+        html += `<div><div class="muted">Tokenizer report</div><pre class="small">${JSON.stringify(tok, null, 2)}</pre></div>`;
+        html += '</div>';
+        modelCard.innerHTML = html;
+      } catch(e){ modelCard.textContent = 'Failed to read model card: '+e.message; }
+    }
+
+    async function infer() {
+      inferErr.textContent=''; inferOut.innerHTML='';
+      const text = textEl.value.trim(); if(!text){ inferErr.textContent='Enter text'; return; }
+      try {
+        const body = { items: [{ id:'1', text }], top_k: +topkEl.value||1, max_length: +maxlenEl.value||null };
+        const res = await req('/v1/infer', { method:'POST', body: JSON.stringify(body)});
+        const r = (res.results||[])[0]||{}; const probs = r.probs || {};
+        const left = document.createElement('div');
+        left.innerHTML = `<div class="muted">Label</div><div class="pill">${r.label||'?'} </div>`;
+        const right = document.createElement('div');
+        right.appendChild(probRow('NEG', probs.NEG||0));
+        right.appendChild(probRow('NEU', probs.NEU||0));
+        right.appendChild(probRow('POS', probs.POS||0));
+        inferOut.appendChild(left); inferOut.appendChild(right);
+      } catch(e){ inferErr.textContent='Inference failed: '+e.message; }
+    }
+
+    async function tokenize() {
+      tokOut.textContent=''; tokMeta.textContent=''; const text = textEl.value.trim(); if(!text) return;
+      try { const res = await req('/v1/tokenize', { method:'POST', body: JSON.stringify({ text, max_length: +maxlenEl.value||null })});
+        tokMeta.textContent = `seq_len=${res.seq_len} ${res.truncated? '(truncated)': ''}`;
+        tokOut.innerHTML = `<code>${(res.tokens||[]).join(' ')}</code>`;
+      } catch(e){ tokMeta.textContent='Tokenize failed: '+e.message; }
+    }
+
+    async function transform() {
+      const text=textEl.value.trim(); if(!text){ xText.textContent=''; return; }
+      try { origText.textContent=text; const body={ preset: presetEl.value, severity:+severityEl.value, prob:+probEl.value, texts:[text] };
+        const res = await req('/v1/stress/transform', { method:'POST', body: JSON.stringify(body)});
+        xText.textContent = (res.texts||[])[0]||'';
+      } catch(e){ xText.textContent = 'Transform failed: '+e.message; }
+    }
+
+    async function exportReport() {
+      exportMsg.textContent=''; try { const body={ glob: globEl.value||'models/*', out_dir: outdirEl.value||'reports/final' };
+        const res = await req('/v1/reports/export', { method:'POST', body: JSON.stringify(body)});
+        exportMsg.textContent = `Exported to ${res.out_dir} in ${res.seconds.toFixed(1)}s`; exportMsg.className='ok';
+      } catch(e){ exportMsg.textContent='Export failed: '+e.message; exportMsg.className='err'; }
+    }
+
+    async function browseReports() {
+      reportView.innerHTML=''; try { const dir = outdirEl.value || 'reports/final';
+        const res = await req(`/v1/reports/overview?dir=${encodeURIComponent(dir)}`);
+        let html = '';
+        if ((res.overall||[]).length) {
+          html += '<div class="muted">overall.csv</div><table class="table"><thead><tr>';
+          Object.keys(res.overall[0]).forEach(k=>{ html += `<th>${k}</th>`; }); html += '</tr></thead><tbody>';
+          res.overall.forEach(r=>{ html += '<tr>'; Object.keys(res.overall[0]).forEach(k=>{ html += `<td>${r[k]??''}</td>`; }); html += '</tr>'; });
+          html += '</tbody></table>';
+        }
+        if ((res.plots||[]).length) {
+          html += '<div class="sep"></div><div class="muted">plots</div>';
+          res.plots.forEach(p=>{ html += `<div class="mt"><img class="thumb" src="${p}" alt="plot" /></div>`; });
+        }
+        reportView.innerHTML = html || '<span class="muted">No report files found.</span>';
+      } catch(e){ reportView.textContent = 'Browse failed: '+e.message; }
+    }
+
+    async function validateDataset() {
+      valOut.innerHTML=''; try { const body = { input_csv: valCsv.value, lang_column: valLang.value || null, group_column: valGroup.value || null, split_column: valSplit.value || null };
+        const res = await req('/v1/validate', { method:'POST', body: JSON.stringify(body)});
+        let html=''; html += '<div class="muted">Summary</div>'; html += `<pre class="small">${JSON.stringify(res.summary, null, 2)}</pre>`;
+        html += '<div class="muted">Issues</div>'; html += `<pre class="small">${JSON.stringify(res.issues, null, 2)}</pre>`; valOut.innerHTML = html;
+      } catch(e){ valOut.textContent = 'Validation failed: '+e.message; }
+    }
+
+    async function computeIAA() {
+      iaaOut.innerHTML=''; try { const body = { input_csv: iaaCsv.value, lang_column: iaaLang.value || null };
+        const res = await req('/v1/iaa', { method:'POST', body: JSON.stringify(body)});
+        iaaOut.innerHTML = `<pre class="small">${JSON.stringify(res, null, 2)}</pre>`;
+      } catch(e){ iaaOut.textContent = 'IAA failed: '+e.message; }
+    }
+
+    // Event bindings
+    btnLoad.addEventListener('click', selectModel);
+    btnInfer.addEventListener('click', infer);
+    btnTokenize.addEventListener('click', tokenize);
+    btnTransform.addEventListener('click', transform);
+    btnExport.addEventListener('click', exportReport);
+    btnBrowse.addEventListener('click', browseReports);
+    btnValidate.addEventListener('click', validateDataset);
+    btnIAA.addEventListener('click', computeIAA);
+
+    // Init
+    loadModels();
+  </script>
+</body>
+</html>
