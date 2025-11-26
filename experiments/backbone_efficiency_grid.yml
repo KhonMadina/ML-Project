@@ -1,0 +1,33 @@
+experiment_name: "backbone_efficiency_grid"
+tracking: "mlflow"
+mlflow_experiment: "khmer_backbone_efficiency"
+
+base:
+  script: "modeling/train_transformer.py"
+  input: "annotation/sample_data/final_dataset.csv"
+  use_splits: true
+  output_root: "runs/backbone_efficiency_grid"
+
+  fixed:
+    epochs: 3
+    batch_size: 16
+    lr: 2e-5
+    weight_decay: 0.01
+    warmup_ratio: 0.1
+    max_length: 192
+    grad_accum: 1
+    fp16: false
+    train_ratio: 0.8
+    val_ratio: 0.1
+    test_ratio: 0.1
+    seed: 123
+    normalize_all: true
+
+# Compare small vs base multilingual models for efficiency and accuracy
+# Note: choose available checkpoints appropriate to your environment
+
+grid:
+  model_name:
+    - "xlm-roberta-base"
+    - "distilbert-base-multilingual-cased"
+  norm_latin_action: ["none", "tag"]

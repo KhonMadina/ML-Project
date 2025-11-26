@@ -593,6 +593,25 @@ def main() -> None:
             if m.sum() > 0:
                 calib_test_lang[lang] = compute_calibration_summary(logits=logits_test[m], y_idx=labels_test[m], n_bins=10)
 
+    # Export standardized test predictions for CI and significance testing
+    try:
+        import numpy as _np
+        import csv as _csv
+        preds_test = _np.asarray(logits_test).argmax(axis=-1)
+        pred_csv = out_dir / "test_predictions.csv"
+        with pred_csv.open("w", encoding="utf-8", newline="") as f:
+            w = _csv.writer(f)
+            w.writerow(["id", "label", "pred_label"])
+            ids = ds_test["id"] if "id" in ds_test.column_names else [str(i) for i in range(len(preds_test))]
+            for i in range(len(preds_test)):
+                gold = int(labels_test[i]) if hasattr(labels_test, "__len__") else labels_test[i]
+                gold_lbl = ID2LABEL.get(gold, str(gold))
+                pred_lbl = ID2LABEL.get(int(preds_test[i]), str(int(preds_test[i])))
+                rid = ids[i]
+                w.writerow([rid, str(gold_lbl).upper(), str(pred_lbl).upper()])
+    except Exception as _e:
+        print(f"Warning: failed to save test_predictions.csv: {_e}")
+
     # Log to tracker
     try:
         base_metrics = {

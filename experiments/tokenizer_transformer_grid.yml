@@ -23,12 +23,20 @@ base:
     seed: 123
     normalize_all: true
 
-# Grid over transformer model/tokenizer choices and Latin handling
-# You can extend `model_name` entries with paths to custom tokenizers
-# trained via tools/train_tokenizer.py.
+# Grid over transformer backbones, latin handling, and tokenizer choices.
+# For tokenizer_path, specify directories produced by tools/train_tokenizer.py.
 
 grid:
   model_name:
     - "xlm-roberta-base"
     - "bert-base-multilingual-cased"
   norm_latin_action: ["none", "tag"]
+  tokenizer_path:
+    - null  # use built-in tokenizer
+    # Uncomment and adjust after training tokenizers:
+    # - "tokenizers/kh/unigram_8000"
+    # - "tokenizers/kh/unigram_16000"
+    # - "tokenizers/kh/unigram_32000"
+    # - "tokenizers/kh/bpe_8000"
+    # - "tokenizers/kh/bpe_16000"
+    # - "tokenizers/kh/bpe_32000"

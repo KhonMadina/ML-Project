@@ -60,7 +60,7 @@ from .text_normalization import (
     save_norm_config,
     normalize_corpus,
 )
-from .calibration_utils import TemperatureScaledModel
+from .calibration_utils import TemperatureScaledModel, compute_calibration_summary
 from .eval import evaluate_classification, LABEL_ORDER_DEFAULT
 
 try:
@@ -365,6 +365,7 @@ def train_and_eval(
         val_split_metrics = evaluate_classification(y_val, y_val_pred, labels=LABEL_ORDER_DEFAULT)
         val_metrics: Dict[str, object] = val_split_metrics.to_dict()
     else:
+        y_val_pred = []  # type: ignore
         val_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
 
     if Xt is not None and len(y_test) > 0:
@@ -376,6 +377,7 @@ def train_and_eval(
         test_metrics: Dict[str, object] = test_split_metrics.to_dict()
         test_throughput = (float(len(y_test)) / test_eval_seconds) if test_eval_seconds > 0 else None
     else:
+        y_test_pred = []  # type: ignore
         test_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
         test_eval_seconds = None
         test_throughput = None
@@ -385,9 +387,63 @@ def train_and_eval(
     if isinstance(safe_args.get("_tracker", None), object):
         safe_args.pop("_tracker", None)
 
+    # Calibration metrics and reliability diagrams
+    calib_summary_val: Dict[str, float] | None = None
+    calib_summary_test: Dict[str, float] | None = None
+    try:
+        if hasattr(model_for_eval, "predict_proba"):
+            if Xv is not None and len(y_val) > 0:
+                import numpy as _np  # lazy import to avoid hard dependency if unused
+                proba_val = model_for_eval.predict_proba(Xv)
+                y_val_idx = _np.array([LABEL_ORDER_DEFAULT.index(lbl) if lbl in LABEL_ORDER_DEFAULT else -1 for lbl in y_val], dtype=int)
+                ok_mask = y_val_idx >= 0
+                if ok_mask.any():
+                    calib_summary_val = compute_calibration_summary(
+                        probs=_np.asarray(proba_val)[ok_mask],
+                        y_idx=y_val_idx[ok_mask],
+                        n_bins=15,
+                        diagram_png=str(output_dir / "val_reliability.png"),
+                        bins_json=str(output_dir / "val_reliability.json"),
+                        title="Val calibration",
+                    )
+            if Xt is not None and len(y_test) > 0:
+                import numpy as _np
+                proba_test = model_for_eval.predict_proba(Xt)
+                y_test_idx = _np.array([LABEL_ORDER_DEFAULT.index(lbl) if lbl in LABEL_ORDER_DEFAULT else -1 for lbl in y_test], dtype=int)
+                ok_mask_t = y_test_idx >= 0
+                if ok_mask_t.any():
+                    calib_summary_test = compute_calibration_summary(
+                        probs=_np.asarray(proba_test)[ok_mask_t],
+                        y_idx=y_test_idx[ok_mask_t],
+                        n_bins=15,
+                        diagram_png=str(output_dir / "test_reliability.png"),
+                        bins_json=str(output_dir / "test_reliability.json"),
+                        title="Test calibration",
+                    )
+    except Exception as _e:
+        print(f"Warning: failed to compute calibration metrics: {_e}")
+
+    # Save standardized test predictions for statistical tests
+    try:
+        if Xt is not None and len(y_test) > 0 and isinstance(y_test_pred, list) is False:
+            import csv as _csv
+            pred_path = output_dir / "test_predictions.csv"
+            with pred_path.open("w", encoding="utf-8", newline="") as f:
+                w = _csv.writer(f)
+                w.writerow(["id", "label", "pred_label"])
+                for r, pred in zip(test_rows, y_test_pred):
+                    w.writerow([r.id, str(r.label).upper(), str(pred).upper()])
+    except Exception as _e:
+        print(f"Warning: failed to save test_predictions.csv: {_e}")
+
     metrics = {
         "val": val_metrics,
         "test": test_metrics,
+        "calibration": {
+            "val": calib_summary_val or {},
+            "test": calib_summary_test or {},
+            "method_info": calibration_info,
+        },
         "params": {
             "ngram_range": [ngram_min, ngram_max],
             "min_df": min_df,

@@ -54,7 +54,11 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
+import json
+import csv
+import math
+import hashlib
 
 try:
     import yaml  # type: ignore
@@ -137,17 +141,103 @@ def combo_to_suffix(combo: Dict[str, Any]) -> str:
     return "__" + "__".join(parts) if parts else ""
 
 
-def build_command(cfg: ExperimentConfig, combo: Dict[str, Any], idx: int, total: int) -> Tuple[str, Path]:
+def sha256_of_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_metrics_json(run_dir: Path) -> Optional[Dict[str, Any]]:
+    mpath = run_dir / "metrics.json"
+    if not mpath.exists():
+        return None
+    try:
+        return json.loads(mpath.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _safe_get(d: Dict[str, Any], path: List[str], default: Any = None) -> Any:
+    cur: Any = d
+    try:
+        for k in path:
+            if isinstance(cur, dict) and k in cur:
+                cur = cur[k]
+            else:
+                return default
+        return cur
+    except Exception:
+        return default
+
+
+def extract_core_metrics(metrics: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    out: Dict[str, Optional[float]] = {
+        "test_f1_macro": None,
+        "test_accuracy": None,
+        "test_ece": None,
+        "test_brier": None,
+        "test_throughput_examples_per_sec": None,
+    }
+    # Try common locations
+    test_block = metrics.get("test") if isinstance(metrics.get("test"), dict) else {}
+    if isinstance(test_block, dict):
+        # HF trainer evaluate usually writes eval_accuracy / eval_f1_macro
+        f1m = test_block.get("eval_f1_macro", test_block.get("eval_f1"))
+        acc = test_block.get("eval_accuracy", test_block.get("accuracy"))
+        out["test_f1_macro"] = float(f1m) if isinstance(f1m, (int, float)) else None
+        out["test_accuracy"] = float(acc) if isinstance(acc, (int, float)) else None
+    # Calibration block
+    calib_block = metrics.get("calibration") if isinstance(metrics.get("calibration"), dict) else {}
+    if isinstance(calib_block, dict):
+        test_cal = calib_block.get("test") if isinstance(calib_block.get("test"), dict) else {}
+        if isinstance(test_cal, dict):
+            ece = test_cal.get("ece")
+            brier = test_cal.get("brier")
+            out["test_ece"] = float(ece) if isinstance(ece, (int, float)) else None
+            out["test_brier"] = float(brier) if isinstance(brier, (int, float)) else None
+    # Timing/throughput
+    thr = _safe_get(metrics, ["timing", "test_throughput_examples_per_sec"], None)
+    if isinstance(thr, (int, float)):
+        out["test_throughput_examples_per_sec"] = float(thr)
+    return out
+
+
+def mean_std_ci(values: List[float]) -> Dict[str, float]:
+    n = len(values)
+    mean = sum(values) / n if n else float("nan")
+    if n <= 1:
+        return {"n": n, "mean": mean, "std": 0.0, "ci_low": mean, "ci_high": mean}
+    var = sum((x - mean) ** 2 for x in values) / (n - 1)
+    std = math.sqrt(var)
+    # Normal approx 95% CI
+    half = 1.96 * std / math.sqrt(n)
+    return {"n": n, "mean": mean, "std": std, "ci_low": mean - half, "ci_high": mean + half}
+
+
+def write_csv_summary(path: Path, rows: List[Dict[str, Any]], field_order: List[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=field_order)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k) for k in field_order})
+
+
+def build_command(cfg: ExperimentConfig, combo: Dict[str, Any], idx: int, total: int, seed_override: Optional[int] = None) -> Tuple[str, Path]:
     """Construct the command line string and output_dir for one combination.
 
     The training script is called via `python <script> ...` with:
     - --input, --use_splits as defined in cfg.base
-    - --output_dir derived from output_root + combo suffix
+    - --output_dir derived from output_root + combo suffix (+ optional seed suffix)
     - --tracking, --experiment_name, --mlflow_experiment
-    - all fixed params as --key value
+    - all fixed params as --key value (with optional seed override)
     - all combo params as --key value
     """
     suffix = combo_to_suffix(combo)
+    if seed_override is not None:
+        suffix = f"{suffix}__seed_{seed_override}"
     output_dir = Path(cfg.output_root) / f"run_{idx:03d}{suffix}"
     # Base command
     cmd: List[str] = [
@@ -167,8 +257,11 @@ def build_command(cfg: ExperimentConfig, combo: Dict[str, Any], idx: int, total:
     if cfg.use_splits:
         cmd.append("--use_splits")
 
-    # Fixed params
-    for k, v in cfg.fixed.items():
+    # Fixed params (respect seed override if provided)
+    fixed_local: Dict[str, Any] = dict(cfg.fixed)
+    if seed_override is not None:
+        fixed_local["seed"] = int(seed_override)
+    for k, v in fixed_local.items():
         flag = f"--{k}"
         if isinstance(v, bool):
             if v:
@@ -203,6 +296,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Run a grid of experiments from a YAML config")
     ap.add_argument("--config", required=True, help="Path to experiment YAML config")
     ap.add_argument("--dry_run", action="store_true", help="Print commands without executing")
+    ap.add_argument("--seeds", nargs="+", help="List of seeds to run for each grid combo (e.g., --seeds 123 456 789)")
+    ap.add_argument("--aggregate", action="store_true", help="Aggregate metrics across seeds and write summaries under output_root")
+    ap.add_argument("--post_ci_pairs", nargs="*", help="Optional pairs A,B of prediction CSVs or run dirs to compute paired bootstrap CIs after runs. Example: --post_ci_pairs runs/a/test_predictions.csv,runs/b/test_predictions.csv ...")
+    ap.add_argument("--post_ci_n", type=int, default=10000, help="Number of bootstrap samples for paired CI")
+    ap.add_argument("--post_ci_alpha", type=float, default=0.05, help="Alpha for CI (default 0.05 for 95% CI)")
+    ap.add_argument("--post_ci_seed", type=int, default=123, help="Seed for bootstrap")
     args = ap.parse_args()
 
     cfg_path = Path(args.config)
@@ -214,18 +313,154 @@ def main() -> None:
     print(f"Loaded config '{cfg.experiment_name}' with {len(combos)} combinations")
 
     # Ensure output root exists
-    Path(cfg.output_root).mkdir(parents=True, exist_ok=True)
+    out_root = Path(cfg.output_root)
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    # Resolve seeds: CLI overrides YAML fixed seed; default to 42 if none provided
+    seeds: List[int]
+    if getattr(args, "seeds", None):
+        seeds = [int(s) for s in args.seeds]
+    else:
+        base_seed = int(cfg.fixed.get("seed", 42)) if isinstance(cfg.fixed, dict) else 42
+        seeds = [base_seed]
+
+    # Compute input checksum for governance
+    try:
+        inp_checksum = sha256_of_file(Path(cfg.base_input))
+    except Exception:
+        inp_checksum = None
+
+    # Track runs for aggregation and checksums
+    runs_index: Dict[str, List[Dict[str, Any]]] = {}
+    checksums_payload: Dict[str, Any] = {
+        "input_path": cfg.base_input,
+        "input_sha256": inp_checksum,
+        "runs": [],
+    }
 
     for idx, combo in enumerate(combos, start=1):
-        cmd, out_dir = build_command(cfg, combo, idx, len(combos))
-        print(f"\n[run_experiment_grid] ({idx}/{len(combos)}) -> output_dir={out_dir}")
-        if args.dry_run:
-            print(cmd)
-        else:
+        base_key = f"run_{idx:03d}{combo_to_suffix(combo)}"
+        for sd in seeds:
+            cmd, out_dir = build_command(cfg, combo, idx, len(combos), seed_override=sd)
+            print(f"\n[run_experiment_grid] ({idx}/{len(combos)}) seed={sd} -> output_dir={out_dir}")
+            if args.dry_run:
+                print(cmd)
+            else:
+                rc = run_command(cmd)
+                if rc != 0:
+                    print(f"[run_experiment_grid] Warning: run {idx} (seed={sd}) exited with code {rc}")
+            # Record for later aggregation
+            runs_index.setdefault(base_key, []).append({"dir": str(out_dir), "seed": int(sd)})
+            checksums_payload["runs"].append({"dir": str(out_dir), "seed": int(sd)})
+
+    # Persist checksums/governance file
+    try:
+        (out_root / "checksums.json").write_text(json.dumps(checksums_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    # Aggregation across seeds per combo
+    if getattr(args, "aggregate", False):
+        print("\n[run_experiment_grid] Aggregating metrics across seeds...")
+        aggregate: Dict[str, Any] = {"combos": {}, "seeds_per_combo": {}}
+        csv_rows: List[Dict[str, Any]] = []
+        for key, runs in runs_index.items():
+            # Load metrics for each run
+            metrics_list: List[Dict[str, Any]] = []
+            for r in runs:
+                m = load_metrics_json(Path(r["dir"]))
+                if m is not None:
+                    metrics_list.append(m)
+            # Extract core metrics
+            f1s: List[float] = []
+            accs: List[float] = []
+            eces: List[float] = []
+            briers: List[float] = []
+            thrus: List[float] = []
+            for m in metrics_list:
+                core = extract_core_metrics(m)
+                if isinstance(core.get("test_f1_macro"), float):
+                    f1s.append(float(core["test_f1_macro"]))
+                if isinstance(core.get("test_accuracy"), float):
+                    accs.append(float(core["test_accuracy"]))
+                if isinstance(core.get("test_ece"), float):
+                    eces.append(float(core["test_ece"]))
+                if isinstance(core.get("test_brier"), float):
+                    briers.append(float(core["test_brier"]))
+                if isinstance(core.get("test_throughput_examples_per_sec"), float):
+                    thrus.append(float(core["test_throughput_examples_per_sec"]))
+            agg_entry: Dict[str, Any] = {}
+            if f1s:
+                agg_entry["test_f1_macro"] = mean_std_ci(f1s)
+            if accs:
+                agg_entry["test_accuracy"] = mean_std_ci(accs)
+            if eces:
+                agg_entry["test_ece"] = mean_std_ci(eces)
+            if briers:
+                agg_entry["test_brier"] = mean_std_ci(briers)
+            if thrus:
+                agg_entry["test_throughput_examples_per_sec"] = mean_std_ci(thrus)
+            aggregate["combos"][key] = agg_entry
+            aggregate["seeds_per_combo"][key] = [int(r["seed"]) for r in runs]
+            # CSV row (flatten selected fields)
+            row: Dict[str, Any] = {"combo_key": key, "n_runs": len(metrics_list)}
+            if "test_f1_macro" in agg_entry:
+                row.update({
+                    "f1_mean": agg_entry["test_f1_macro"]["mean"],
+                    "f1_ci_low": agg_entry["test_f1_macro"]["ci_low"],
+                    "f1_ci_high": agg_entry["test_f1_macro"]["ci_high"],
+                })
+            if "test_accuracy" in agg_entry:
+                row.update({
+                    "acc_mean": agg_entry["test_accuracy"]["mean"],
+                })
+            if "test_ece" in agg_entry:
+                row.update({"ece_mean": agg_entry["test_ece"]["mean"]})
+            if "test_brier" in agg_entry:
+                row.update({"brier_mean": agg_entry["test_brier"]["mean"]})
+            if "test_throughput_examples_per_sec" in agg_entry:
+                row.update({"throughput_mean": agg_entry["test_throughput_examples_per_sec"]["mean"]})
+            csv_rows.append(row)
+        try:
+            (out_root / "aggregate_summary.json").write_text(json.dumps(aggregate, ensure_ascii=False, indent=2), encoding="utf-8")
+            write_csv_summary(out_root / "aggregate_summary.csv", csv_rows, [
+                "combo_key", "n_runs", "f1_mean", "f1_ci_low", "f1_ci_high", "acc_mean", "ece_mean", "brier_mean", "throughput_mean"
+            ])
+            print(f"[run_experiment_grid] Wrote aggregate summaries under {out_root}")
+        except Exception as e:
+            print(f"[run_experiment_grid] Failed to write aggregate summaries: {e}")
+
+    # Optional post-run paired bootstrap CI on provided pairs
+    if getattr(args, "post_ci_pairs", None):
+        print("\n[run_experiment_grid] Running post-run paired bootstrap CI...")
+        ci_dir = out_root / "ci"
+        ci_dir.mkdir(parents=True, exist_ok=True)
+        for i, pair in enumerate(args.post_ci_pairs, start=1):
+            try:
+                a, b = pair.split(",", 1)
+            except ValueError:
+                print(f"[run_experiment_grid] Skipping malformed pair: {pair}")
+                continue
+            # Resolve prediction CSVs
+            def resolve_pred(p: str) -> Path:
+                pp = Path(p)
+                if pp.is_dir():
+                    cand = pp / "test_predictions.csv"
+                    if cand.exists():
+                        return cand
+                return pp
+            pa = resolve_pred(a)
+            pb = resolve_pred(b)
+            if not pa.exists() or not pb.exists():
+                print(f"[run_experiment_grid] Skipping pair (missing files): {pa}, {pb}")
+                continue
+            outp = ci_dir / f"pair_{i:02d}"
+            # Call paired_bootstrap_ci.py via subprocess
+            cmd = f"python tools/paired_bootstrap_ci.py --predictions_a {pa} --predictions_b {pb} --output {outp} --n_bootstrap {int(args.post_ci_n)} --alpha {float(args.post_ci_alpha)} --seed {int(args.post_ci_seed)}"
             rc = run_command(cmd)
             if rc != 0:
-                # Decide whether to stop on error; for now, continue but report
-                print(f"[run_experiment_grid] Warning: run {idx} exited with code {rc}")
+                print(f"[run_experiment_grid] Warning: CI computation failed for pair {i}")
+        print(f"[run_experiment_grid] CI outputs under {ci_dir}")
 
 
 if __name__ == "__main__":
