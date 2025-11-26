@@ -186,6 +186,8 @@ def train_and_eval(
     resample_ratio: float,
 ) -> None:
     ensure_dir(output_dir)
+    import time as _time
+    _t_train_start = _time.time()
 
     # Ensure the training split has at least two classes; if not, borrow samples from val/test.
     train_labels = set(r.label for r in train_rows)
@@ -317,6 +319,8 @@ def train_and_eval(
         random_state=seed,
     )
     clf.fit(Xtr, y_train)
+    _t_train_end = _time.time()
+    train_seconds = float(_t_train_end - _t_train_start)
 
     # Evaluate on val and test, with optional calibration
     Xv = vectorizer.transform(X_val) if len(X_val) > 0 else None
@@ -364,11 +368,17 @@ def train_and_eval(
         val_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
 
     if Xt is not None and len(y_test) > 0:
+        _t_test_start = _time.time()
         y_test_pred = model_for_eval.predict(Xt)
+        _t_test_end = _time.time()
+        test_eval_seconds = float(_t_test_end - _t_test_start)
         test_split_metrics = evaluate_classification(y_test, y_test_pred, labels=LABEL_ORDER_DEFAULT)
         test_metrics: Dict[str, object] = test_split_metrics.to_dict()
+        test_throughput = (float(len(y_test)) / test_eval_seconds) if test_eval_seconds > 0 else None
     else:
         test_metrics = {"accuracy": None, "f1_macro": None, "report": {}, "confusion": [[0,0,0],[0,0,0],[0,0,0]]}
+        test_eval_seconds = None
+        test_throughput = None
 
     # Remove non-serializable objects from args (e.g., tracker instance)
     safe_args = dict(args_dict)
@@ -397,6 +407,11 @@ def train_and_eval(
         "args": safe_args,
         "calibration": calibration_info,
         "resampling": resampling_info,
+        "timing": {
+            "train_seconds": float(train_seconds),
+            "test_eval_seconds": float(test_eval_seconds) if test_eval_seconds is not None else None,
+            "test_throughput_examples_per_sec": float(test_throughput) if test_throughput is not None else None,
+        },
     }
 
     # Save artifacts
@@ -412,12 +427,18 @@ def train_and_eval(
         tr = args_dict.get("_tracker")
         try:
             # flatten a few metrics for logging
-            tr.log_metrics({
+            to_log = {
                 "val_accuracy": float(metrics["val"]["accuracy"]),
                 "val_f1_macro": float(metrics["val"]["f1_macro"]),
                 "test_accuracy": float(metrics["test"]["accuracy"]),
                 "test_f1_macro": float(metrics["test"]["f1_macro"]),
-            })
+                "train_seconds": float(train_seconds),
+            }
+            if test_eval_seconds is not None:
+                to_log["test_eval_seconds"] = float(test_eval_seconds)
+            if test_throughput is not None:
+                to_log["test_throughput_examples_per_sec"] = float(test_throughput)
+            tr.log_metrics(to_log)
             tr.log_artifact(output_dir / "metrics.json")
             tr.log_artifact(output_dir / "confusion_matrix.csv")
             tr.log_artifact(output_dir / "vectorizer.pkl", artifact_path="artifacts")

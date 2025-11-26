@@ -110,3 +110,188 @@ class TemperatureScaledModel:
         if self.classes_ is not None:
             return np.array([self.classes_[i] for i in idx])
         return idx
+
+
+# -----------------------------
+# Calibration metrics and plots
+# -----------------------------
+
+def probs_from_logits(logits: "np.ndarray") -> "np.ndarray":
+    """Convert logits to probabilities via softmax.
+
+    Parameters
+    ----------
+    logits : np.ndarray of shape (n_samples, n_classes)
+
+    Returns
+    -------
+    np.ndarray of shape (n_samples, n_classes)
+    """
+    return _softmax(logits)
+
+
+def compute_brier_score(probs: "np.ndarray", y_idx: "np.ndarray") -> float:
+    """Compute multi-class Brier score.
+
+    Parameters
+    ----------
+    probs : (n_samples, n_classes)
+    y_idx : (n_samples,) integer labels
+    """
+    n = probs.shape[0]
+    k = probs.shape[1]
+    # Build one-hot
+    oh = np.zeros_like(probs)
+    oh[np.arange(n), y_idx] = 1.0
+    diff = probs - oh
+    brier = float(np.mean(np.sum(diff * diff, axis=1)))
+    return brier
+
+
+def reliability_bins(probs: "np.ndarray", y_idx: "np.ndarray", n_bins: int = 15):
+    """Compute reliability bins for ECE/diagram using max-prob predictions.
+
+    Returns a list of dicts with keys: bin_lower, bin_upper, count, accuracy, confidence.
+    """
+    preds = np.argmax(probs, axis=1)
+    conf = np.max(probs, axis=1)
+    correct = (preds == y_idx).astype(float)
+
+    # Bin edges in [0, 1]
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+    out = []
+    for i in range(n_bins):
+        lo, hi = float(bins[i]), float(bins[i + 1])
+        mask = (conf > lo) & (conf <= hi) if i > 0 else (conf >= lo) & (conf <= hi)
+        cnt = int(np.sum(mask))
+        if cnt == 0:
+            acc = 0.0
+            avg_conf = 0.0
+        else:
+            acc = float(np.mean(correct[mask]))
+            avg_conf = float(np.mean(conf[mask]))
+        out.append({
+            "bin_lower": lo,
+            "bin_upper": hi,
+            "count": cnt,
+            "accuracy": acc,
+            "confidence": avg_conf,
+        })
+    return out
+
+
+def compute_ece(probs: "np.ndarray", y_idx: "np.ndarray", n_bins: int = 15) -> float:
+    """Compute Expected Calibration Error (ECE) using max-prob confidence bins.
+    Weighs bin gaps by bin frequency.
+    """
+    bins = reliability_bins(probs, y_idx, n_bins=n_bins)
+    n = probs.shape[0]
+    ece = 0.0
+    for b in bins:
+        if b["count"] <= 0:
+            continue
+        w = b["count"] / n
+        ece += w * abs(b["accuracy"] - b["confidence"])
+    return float(ece)
+
+
+def save_reliability_bins(bins, json_path: str | None = None, csv_path: str | None = None) -> None:
+    """Save reliability bin statistics to JSON and/or CSV."""
+    if json_path:
+        try:
+            import json as _json
+            with open(json_path, "w", encoding="utf-8") as f:
+                _json.dump(bins, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    if csv_path:
+        try:
+            import csv as _csv
+            keys = ["bin_lower", "bin_upper", "count", "accuracy", "confidence"]
+            with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                w = _csv.DictWriter(f, fieldnames=keys)
+                w.writeheader()
+                for b in bins:
+                    w.writerow({k: b.get(k, "") for k in keys})
+        except Exception:
+            pass
+
+
+def plot_reliability_diagram(bins, output_png: str, title: str | None = None) -> bool:
+    """Plot reliability diagram. Returns True if saved successfully, else False."""
+    try:
+        import matplotlib.pyplot as plt  # type: ignore
+    except Exception:
+        return False
+
+    try:
+        conf = [b["confidence"] for b in bins]
+        acc = [b["accuracy"] for b in bins]
+        width = [b["bin_upper"] - b["bin_lower"] for b in bins]
+        centers = [b["bin_lower"] + w / 2 for b, w in zip(bins, width)]
+
+        plt.figure(figsize=(5, 5), dpi=120)
+        plt.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Perfectly calibrated")
+        plt.bar(centers, acc, width=width, alpha=0.6, align="center", edgecolor="black", label="Empirical accuracy")
+        plt.plot(centers, conf, color="C1", marker="o", label="Average confidence")
+        plt.xlim(0, 1)
+        plt.ylim(0, 1)
+        plt.xlabel("Confidence")
+        plt.ylabel("Accuracy")
+        if title:
+            plt.title(title)
+        plt.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(output_png)
+        plt.close()
+        return True
+    except Exception:
+        return False
+
+
+def compute_calibration_summary(
+    probs: "np.ndarray" | None = None,
+    logits: "np.ndarray" | None = None,
+    y_idx: "np.ndarray" | None = None,
+    n_bins: int = 15,
+    diagram_png: str | None = None,
+    bins_json: str | None = None,
+    bins_csv: str | None = None,
+    title: str | None = None,
+):
+    """Compute calibration metrics and optionally save reliability artifacts.
+
+    Provide either `probs` or `logits`. Returns a dict with keys: ece, brier, n_samples, n_classes.
+    """
+    if probs is None and logits is None:
+        raise ValueError("Provide either probs or logits")
+    if y_idx is None:
+        raise ValueError("Provide y_idx integer labels")
+    if probs is None:
+        probs = probs_from_logits(logits)  # type: ignore[arg-type]
+    if probs is None:
+        raise ValueError("Failed to derive probabilities")
+
+    probs = np.asarray(probs, dtype=float)
+    y_idx = np.asarray(y_idx, dtype=int)
+    if probs.ndim != 2:
+        raise ValueError("probs must be 2D (n_samples, n_classes)")
+    if y_idx.ndim != 1 or y_idx.shape[0] != probs.shape[0]:
+        raise ValueError("y_idx must be 1D and match n_samples in probs")
+
+    ece = compute_ece(probs, y_idx, n_bins=n_bins)
+    brier = compute_brier_score(probs, y_idx)
+    bins = reliability_bins(probs, y_idx, n_bins=n_bins)
+
+    if diagram_png:
+        plot_reliability_diagram(bins, diagram_png, title=title)
+    if bins_json or bins_csv:
+        save_reliability_bins(bins, json_path=bins_json, csv_path=bins_csv)
+
+    return {
+        "ece": float(ece),
+        "brier": float(brier),
+        "n_samples": int(probs.shape[0]),
+        "n_classes": int(probs.shape[1]),
+        "n_bins": int(n_bins),
+    }

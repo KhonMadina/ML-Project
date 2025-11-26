@@ -1,30 +1,13 @@
 #!/usr/bin/env python3
 """
-Transformer baselines (XLM-R / mBERT) fine-tuning for Khmer sentiment (POS/NEG/NEU).
+Transformer baselines (XLM-R / mBERT) fine-tuning for Khmer/English sentiment (POS/NEG/NEU).
 
-Features:
-- Uses HuggingFace Transformers Trainer for text classification.
-- Supports either predefined splits (final_train/val/test.csv) or in-script splits.
-- Applies the same normalization used by the baseline pipeline (normalization.json saved with the model).
-- Logs metrics and saves model, tokenizer, and normalization config in output_dir.
-
-Inputs: CSV with columns id,text,label[,<group_column>]
-Labels: POS, NEG, NEU
-
-Examples:
-  # Train XLM-R using existing splits
-  python modeling/train_transformer.py \
-    --input annotation/sample_data/final_dataset.csv \
-    --use_splits \
-    --output_dir models/xlmr_base \
-    --model_name xlm-roberta-base \
-    --normalize_all
-
-  # Train mBERT with random stratified split
-  python modeling/train_transformer.py \
-    --input annotation/sample_data/final_dataset.csv \
-    --output_dir models/mbert_base \
-    --model_name bert-base-multilingual-cased
+New features in this version:
+- Bilingual support via --lang_column and optional stratification by language
+- Optional dual-head classification (--dual_head) with language-routed heads
+- Optional focal loss (--focal_loss) and class weighting (--class_weighting)
+- Per-language metrics and calibration (ECE/Brier) reporting for val/test
+- Backwards compatible defaults when no language column/options are provided
 
 Dependencies:
   pip install transformers datasets accelerate evaluate torch
@@ -33,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,17 +33,19 @@ from .data import (
 )
 from .eval import LABEL_ORDER_DEFAULT
 
-# Hard-disable Weights & Biases for non-interactive demo runs so transformers Trainer
-# does not try to initialize wandb or prompt for credentials.
-os.environ.setdefault("WANDB_DISABLED", "true")
-os.environ.setdefault("WANDB_MODE", "disabled")
-
 # Experiment utilities for reproducibility and tracking
 from .utils.experiment import Config as ExpConfig, prepare_experiment, set_global_seed
 
 # Torch for device selection; guard CUDA access via utils.device
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from .utils.device import get_device
+# Limit PyTorch CPU thread usage to reduce instability on Windows without MKL/OpenMP issues
+try:
+    torch.set_num_threads(1)
+except Exception:
+    pass
 
 try:
     import pandas as pd  # type: ignore
@@ -73,10 +59,10 @@ except Exception:
 
 try:
     # transformers and evaluate are optional runtime dependencies; add type ignores
-    # so static analyzers (e.g., Pylance/mypy) don't error when they are missing
     from transformers import (  # type: ignore[import]
         AutoTokenizer,
         AutoModelForSequenceClassification,
+        AutoModel,
         Trainer,
         TrainingArguments,
         DataCollatorWithPadding,
@@ -89,34 +75,67 @@ except Exception as e:
         f"Underlying import error: {e}"
     )
 
+# Prefer explicit Trainer.report_to over global WANDB_DISABLED env flags
+os.environ.setdefault("WANDB_DISABLED", "true")
+os.environ.setdefault("WANDB_MODE", "disabled")
+# Disable parallelism in HuggingFace tokenizers on Windows to avoid crashes
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 from .text_normalization import (
     build_norm_config_from_args,
     save_norm_config,
     normalize_text,
 )
+from .calibration_utils import compute_calibration_summary, probs_from_logits
 
 LABELS = LABEL_ORDER_DEFAULT
 LABEL2ID = {l: i for i, l in enumerate(LABELS)}
 ID2LABEL = {i: l for l, i in LABEL2ID.items()}
 
 
-def to_dataset(rows: List[Row], tokenizer, max_length: int, norm_cfg: Optional[Dict[str, object]]):
+@dataclass
+class LangMap:
+    lang_to_idx: Dict[str, int]
+    idx_to_lang: Dict[int, str]
+
+
+def build_lang_map(rows: List[Row], explicit_langs: Optional[List[str]] = None) -> Optional[LangMap]:
+    langs: List[str] = []
+    if explicit_langs:
+        langs = [str(x).lower() for x in explicit_langs]
+    else:
+        seen = set()
+        for r in rows:
+            if r.lang:
+                seen.add(str(r.lang).lower())
+        langs = sorted(seen)
+    if not langs:
+        return None
+    l2i = {l: i for i, l in enumerate(langs)}
+    i2l = {i: l for l, i in l2i.items()}
+    return LangMap(l2i, i2l)
+
+
+def to_dataset(rows: List[Row], tokenizer, max_length: int, norm_cfg: Optional[Dict[str, object]], lang_map: Optional[LangMap]):
     texts = []
     labels = []
     ids = []
+    lang_idx = []
     for r in rows:
         t = r.text
         if norm_cfg:
             t = normalize_text(t, norm_cfg)
-        # Validate label to avoid passing invalid targets (e.g., -1) into the model
         if r.label not in LABEL2ID:
             raise ValueError(
-                f"Unknown label '{r.label}' for id={r.id}. "
-                f"Expected one of {list(LABEL2ID.keys())}."
+                f"Unknown label '{r.label}' for id={r.id}. Expected one of {list(LABEL2ID.keys())}."
             )
         texts.append(t)
         labels.append(LABEL2ID[r.label])
         ids.append(r.id)
+        if lang_map is not None and r.lang is not None:
+            lang_idx.append(lang_map.lang_to_idx.get(str(r.lang).lower(), -1))
+        elif lang_map is not None:
+            lang_idx.append(-1)
     enc = tokenizer(texts, truncation=True, padding=False, max_length=max_length)
     data = {
         "input_ids": enc["input_ids"],
@@ -125,21 +144,154 @@ def to_dataset(rows: List[Row], tokenizer, max_length: int, norm_cfg: Optional[D
         "id": ids,
         "text": texts,
     }
+    if lang_map is not None:
+        data["lang_idx"] = lang_idx
     try:
-        from datasets import Dataset # type: ignore
+        from datasets import Dataset  # type: ignore
         return Dataset.from_dict(data)
     except Exception as e:
         raise SystemExit("datasets package is required: pip install datasets")
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Fine-tune a transformer baseline for Khmer sentiment")
-    ap.add_argument("--input", required=True, help="Path to finalized dataset CSV (or any of the split CSVs)")
-    ap.add_argument("--use_splits", action="store_true", help="Use final_train/val/test.csv next to --input")
-    ap.add_argument("--output_dir", required=True, help="Directory to save model artifacts")
+class LanguageRoutedSequenceClassifier(nn.Module):
+    """A lightweight language-routed classifier on top of a base transformer.
 
+    - Uses base AutoModel to get last_hidden_state and CLS token representation.
+    - Applies language-specific Linear heads when lang_idx is provided; else default head.
+    - Supports class weighting and focal loss in compute_loss (via external wrapper Trainer).
+    """
+
+    def __init__(self, model_name: str, num_labels: int, langs: List[str]):
+        super().__init__()
+        self.base = AutoModel.from_pretrained(model_name)
+        hidden = getattr(self.base.config, "hidden_size", None)
+        if hidden is None:
+            raise RuntimeError("Base model config missing hidden_size")
+        dropout_p = getattr(self.base.config, "hidden_dropout_prob", 0.1)
+        self.dropout = nn.Dropout(dropout_p)
+        self.num_labels = int(num_labels)
+        self.langs = [str(l).lower() for l in langs]
+        # language-specific heads
+        self.heads = nn.ModuleDict({l: nn.Linear(hidden, num_labels) for l in self.langs})
+        # default head for unknown/missing language values
+        self.default_head = nn.Linear(hidden, num_labels)
+
+    def forward(self, input_ids=None, attention_mask=None, labels=None, lang_idx=None):
+        out = self.base(input_ids=input_ids, attention_mask=attention_mask)
+        # CLS pooling (works for BERT/XLM-R); for models without CLS, mean pooling would be needed
+        cls = out.last_hidden_state[:, 0, :]
+        cls = self.dropout(cls)
+
+        if lang_idx is None:
+            logits = self.default_head(cls)
+        else:
+            # Build logits routing by language groups in the batch
+            B = cls.shape[0]
+            device = cls.device
+            logits = torch.zeros((B, self.num_labels), dtype=cls.dtype, device=device)
+            # For each language present in self.langs, route corresponding items
+            for lang, head in self.heads.items():
+                # Build mask for this language index
+                lang_i = self.langs.index(lang)
+                mask = (lang_idx == lang_i)
+                if mask.any():
+                    logits[mask] = head(cls[mask])
+            # Remaining (mask == False for all) go to default head
+            default_mask = torch.ones((B,), dtype=torch.bool, device=device)
+            for lang in self.langs:
+                li = self.langs.index(lang)
+                default_mask &= (lang_idx != li)
+            if default_mask.any():
+                logits[default_mask] = self.default_head(cls[default_mask])
+
+        loss = None
+        if labels is not None:
+            loss = F.cross_entropy(logits, labels)
+        return {"loss": loss, "logits": logits}
+
+
+class WeightedFocalTrainer(Trainer):
+    """Trainer with optional focal loss and class weighting.
+
+    Args
+    - class_weights: Optional list/array of shape (num_labels,) mapped to LABELS order
+    - focal_loss: bool to enable focal loss
+    - focal_gamma: focusing parameter gamma
+    """
+
+    def __init__(self, *args, class_weights=None, focal_loss: bool = False, focal_gamma: float = 2.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = None
+        if class_weights is not None:
+            import numpy as _np
+            w = _np.asarray(class_weights, dtype=_np.float32)
+            if w.ndim != 1:
+                raise ValueError("class_weights must be 1D")
+            self.class_weights = torch.tensor(w, dtype=torch.float32)
+        self.focal_loss = bool(focal_loss)
+        self.focal_gamma = float(focal_gamma)
+
+    def compute_loss(self, model, inputs, return_outputs: bool = False, num_items_in_batch: int | None = None, **kwargs):
+        """Custom loss supporting class weights and focal loss.
+
+        Transformers may pass extra keyword arguments (e.g., num_items_in_batch) to compute_loss.
+        Accept them for compatibility and ignore if unused.
+        """
+        labels = inputs.get("labels")
+        # Exclude labels when forwarding through the model
+        outputs = model(**{k: v for k, v in inputs.items() if k != "labels"})
+        logits = outputs["logits"]
+        # Resolve class weights tensor if provided
+        cw = self.class_weights.to(logits.device) if self.class_weights is not None else None
+        if self.focal_loss:
+            # Focal loss on probabilities; numerical stability by log-softmax
+            logp = F.log_softmax(logits, dim=-1)
+            p = logp.exp()
+            nll = F.nll_loss(logp, labels, reduction="none", weight=cw)
+            loss = ((1 - p.gather(1, labels.unsqueeze(1)).squeeze(1)) ** self.focal_gamma) * nll
+            loss = loss.mean()
+        else:
+            loss = F.cross_entropy(logits, labels, weight=cw)
+        return (loss, outputs) if return_outputs else loss
+
+
+def compute_class_weights(rows: List[Row]) -> List[float]:
+    from collections import Counter
+    cnt = Counter([r.label for r in rows])
+    total = sum(cnt.values())
+    weights: List[float] = []
+    for l in LABELS:
+        c = cnt.get(l, 0)
+        if c <= 0:
+            weights.append(0.0)
+        else:
+            weights.append(total / (len(LABELS) * c))
+    return weights
+
+
+def per_language_metrics(preds_logits: np.ndarray, labels: np.ndarray, lang_idx: Optional[np.ndarray], idx_to_lang: Optional[Dict[int, str]]):
+    metric_acc = evaluate.load("accuracy")
+    metric_f1 = evaluate.load("f1")
+    out: Dict[str, float] = {}
+    if lang_idx is None or idx_to_lang is None:
+        return out
+    for li, lang in idx_to_lang.items():
+        mask = (lang_idx == li)
+        if mask.sum() <= 0:
+            continue
+        p = preds_logits[mask].argmax(axis=-1)
+        y = labels[mask]
+        acc = metric_acc.compute(predictions=p, references=y)["accuracy"]
+        f1m = metric_f1.compute(predictions=p, references=y, average="macro")["f1"]
+        out[f"accuracy__{lang}"] = float(acc)
+        out[f"f1_macro__{lang}"] = float(f1m)
+    return out
+
+
+def add_common_args(ap: argparse.ArgumentParser) -> None:
     # Model and training params
     ap.add_argument("--model_name", default="xlm-roberta-base", help="HF model name (e.g., xlm-roberta-base, bert-base-multilingual-cased)")
+    ap.add_argument("--tokenizer_path", default=None, help="Optional path to a custom tokenizer directory (overrides --model_name tokenizer)")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--batch_size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=2e-5)
@@ -150,7 +302,6 @@ def main() -> None:
     ap.add_argument("--fp16", action="store_true")
 
     # Device control
-    # Default to CPU to avoid issues on machines with old/broken CUDA drivers; "auto" still prefers CUDA when safe.
     ap.add_argument("--device", type=str, default="cpu", choices=["auto", "cpu", "cuda"], help="Device preference: auto picks CUDA if safe, else CPU")
     ap.add_argument("--cuda_device", type=int, default=None, help="CUDA device index when using --device cuda/auto")
 
@@ -170,9 +321,19 @@ def main() -> None:
     ap.add_argument("--wandb_entity", default=None)
     ap.add_argument("--wandb_mode", default=None)
 
-    # Group and normalization
+    # Group, language and normalization
     ap.add_argument("--group_column", default=None)
-    # Normalization flags (aligned with text_normalization.build_norm_config_from_args)
+    ap.add_argument("--lang_column", default=None, help="Optional language column name (e.g., 'lang')")
+    ap.add_argument("--langs", nargs="*", default=None, help="Explicit list of known languages (e.g., km en). If omitted, inferred from data")
+    ap.add_argument("--stratify_by_lang", action="store_true", help="Stratify by (label,lang) when creating splits")
+
+    # Dual-head routing and loss shaping
+    ap.add_argument("--dual_head", action="store_true", help="Use language-routed dual-head classification")
+    ap.add_argument("--class_weighting", choices=["none", "balanced"], default="none", help="Enable class weighting in loss")
+    ap.add_argument("--focal_loss", action="store_true", help="Enable focal loss")
+    ap.add_argument("--focal_gamma", type=float, default=2.0, help="Focal loss gamma parameter")
+
+    # Normalization flags
     ap.add_argument("--normalize_all", action="store_true", help="Enable a default Khmer/social text normalization pipeline")
     ap.add_argument("--norm_nfc", action="store_true", help="Apply Unicode NFC normalization")
     ap.add_argument("--norm_whitespace", action="store_true", help="Collapse whitespace and trim")
@@ -186,9 +347,16 @@ def main() -> None:
     ap.add_argument("--norm_latin_action", choices=["none", "tag", "strip"], default=None, help="How to handle high Latin code-switching: none/tag/strip")
     ap.add_argument("--norm_latin_threshold", type=float, default=None, help="Threshold (0-1) of Latin letters to trigger latin_action when enabled")
 
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Fine-tune a transformer for Khmer/English sentiment with bilingual features")
+    ap.add_argument("--input", required=True, help="Path to finalized dataset CSV (or any of the split CSVs)")
+    ap.add_argument("--use_splits", action="store_true", help="Use final_train/val/test.csv next to --input")
+    ap.add_argument("--output_dir", required=True, help="Directory to save model artifacts")
+    add_common_args(ap)
     args = ap.parse_args()
 
-    # Resolve device safely (CUDA if healthy, else CPU)
+    # Resolve device safely
     dev_ctx = get_device(args.device, args.cuda_device)
     print(f"Using device: {dev_ctx.device}")
 
@@ -220,52 +388,77 @@ def main() -> None:
         test_p = base / "final_test.csv"
         if not (train_p.exists() and val_p.exists() and test_p.exists()):
             raise SystemExit(f"--use_splits set but split files not found: {train_p}, {val_p}, {test_p}")
-        train_rows = read_csv_rows(train_p, group_col=args.group_column)
-        val_rows = read_csv_rows(val_p, group_col=args.group_column)
-        test_rows = read_csv_rows(test_p, group_col=args.group_column)
+        train_rows = read_csv_rows(train_p, group_col=args.group_column, lang_col=args.lang_column)
+        val_rows = read_csv_rows(val_p, group_col=args.group_column, lang_col=args.lang_column)
+        test_rows = read_csv_rows(test_p, group_col=args.group_column, lang_col=args.lang_column)
     else:
-        rows = read_csv_rows(input_path, group_col=args.group_column)
-        train_rows, val_rows, test_rows = stratified_split(rows, args.train_ratio, args.val_ratio, args.test_ratio, seed=args.seed)
+        rows = read_csv_rows(input_path, group_col=args.group_column, lang_col=args.lang_column)
+        train_rows, val_rows, test_rows = stratified_split(
+            rows, args.train_ratio, args.val_ratio, args.test_ratio, seed=args.seed, stratify_by_lang=bool(args.stratify_by_lang)
+        )
+
+    # Build language map if language column present
+    lang_map = build_lang_map(train_rows + val_rows + test_rows, explicit_langs=args.langs)
 
     # Normalization config
     norm_cfg = build_norm_config_from_args(args)
 
     # Tokenizer and datasets
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
-    ds_train = to_dataset(train_rows, tokenizer, args.max_length, norm_cfg)
-    ds_val = to_dataset(val_rows, tokenizer, args.max_length, norm_cfg)
-    ds_test = to_dataset(test_rows, tokenizer, args.max_length, norm_cfg)
+    if args.tokenizer_path:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path, use_fast=True)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
+    ds_train = to_dataset(train_rows, tokenizer, args.max_length, norm_cfg, lang_map)
+    ds_val = to_dataset(val_rows, tokenizer, args.max_length, norm_cfg, lang_map)
+    ds_test = to_dataset(test_rows, tokenizer, args.max_length, norm_cfg, lang_map)
 
-    # Model
-    # OSError 1455 ("The paging file is too small for this operation to complete") is a Windows
-    # system-level out-of-memory error when allocating tensors for a large checkpoint. We
-    # explicitly load on CPU with low_cpu_mem_usage and surface a clearer message with
-    # mitigation guidance.
-    try:
-        model = AutoModelForSequenceClassification.from_pretrained(
-            args.model_name,
-            num_labels=len(LABELS),
-            id2label=ID2LABEL,
-            label2id=LABEL2ID,
-            torch_dtype=torch.float32,
-            low_cpu_mem_usage=True,
-        )
-    except OSError as e:
-        msg = str(e).lower()
-        if "1455" in str(e) or "paging file is too small" in msg or "out of memory" in msg:
-            raise SystemExit(
-                "Failed to load transformer weights due to insufficient system memory (likely Windows error 1455).\n"
-                "The selected model checkpoint is too large for available RAM + page file.\n"
-                "Mitigations:\n"
-                "  - Use a smaller model (e.g., 'prajjwal1/bert-tiny', 'distilbert-base-multilingual-cased').\n"
-                "  - Close other memory-intensive applications and retry.\n"
-                "  - Increase the Windows paging file size.\n"
-                "  - Reduce sequence length (--max_length) and/or batch size (--batch_size).\n"
-                f"Original error: {e}"
+    # Model selection (single-head vs language-routed dual-head)
+    use_cuda = dev_ctx.is_cuda
+    if args.dual_head:
+        langs = lang_map.lang_to_idx.keys() if lang_map is not None else []
+        model = LanguageRoutedSequenceClassifier(args.model_name, num_labels=len(LABELS), langs=list(langs))
+    else:
+        try:
+            model = AutoModelForSequenceClassification.from_pretrained(
+                args.model_name,
+                num_labels=len(LABELS),
+                id2label=ID2LABEL,
+                label2id=LABEL2ID,
+                dtype=torch.float32,
+                low_cpu_mem_usage=True,
             )
-        raise
+        except OSError as e:
+            msg = str(e).lower()
+            if "1455" in str(e) or "paging file is too small" in msg or "out of memory" in msg:
+                raise SystemExit(
+                    "Failed to load transformer weights due to insufficient system memory (likely Windows error 1455).\n"
+                    "The selected model checkpoint is too large for available RAM + page file.\n"
+                    "Mitigations:\n"
+                    "  - Use a smaller model (e.g., 'prajjwal1/bert-tiny', 'distilbert-base-multilingual-cased').\n"
+                    "  - Close other memory-intensive applications and retry.\n"
+                    "  - Increase the Windows paging file size.\n"
+                    "  - Reduce sequence length (--max_length) and/or batch size (--batch_size).\n"
+                    f"Original error: {e}"
+                )
+            raise
 
-    # Metrics function
+    # Parameter counts
+    try:
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    except Exception:
+        total_params = None
+        trainable_params = None
+
+    try:
+        tracker.log_metrics({
+            "model_params_total": float(total_params) if total_params is not None else 0.0,
+            "model_params_trainable": float(trainable_params) if trainable_params is not None else 0.0,
+        })
+    except Exception:
+        pass
+
+    # Metrics function (overall only here; per-language computed post-hoc)
     metric_acc = evaluate.load("accuracy")
     metric_f1 = evaluate.load("f1")
 
@@ -286,9 +479,15 @@ def main() -> None:
             print("Warning: fp16 requested but no usable CUDA device found; disabling fp16.")
         safe_fp16 = False
 
-    # Use a minimal set of TrainingArguments fields compatible with a wide range of transformers versions.
-    # More advanced options like evaluation_strategy/save_strategy/load_best_model_at_end can be added
-    # if your installed transformers version supports them.
+    # Reporting backend
+    report_to: str | list[str] | None
+    if exp_cfg.tracking == "wandb":
+        report_to = ["wandb"]
+    elif exp_cfg.tracking in {"mlflow", "none"}:
+        report_to = "none"
+    else:
+        report_to = "none"
+
     training_args = TrainingArguments(
         output_dir=str(out_dir),
         num_train_epochs=args.epochs,
@@ -300,39 +499,136 @@ def main() -> None:
         fp16=safe_fp16,
         seed=args.seed,
         logging_steps=50,
-        no_cuda=(not dev_ctx.is_cuda),
+        max_grad_norm=1.0,
+        use_cpu=not dev_ctx.is_cuda,
+        report_to=report_to,
+        dataloader_num_workers=0,
     )
 
-    trainer = Trainer(
+    # Class weighting / focal loss
+    class_weights = None
+    if args.class_weighting == "balanced":
+        class_weights = compute_class_weights(train_rows)
+
+    # Custom Trainer to handle (optional) focal/class-weight losses
+    trainer = WeightedFocalTrainer(
         model=model,
         args=training_args,
         train_dataset=ds_train,
         eval_dataset=ds_val,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
+        class_weights=class_weights,
+        focal_loss=bool(args.focal_loss),
+        focal_gamma=float(args.focal_gamma),
     )
 
+    # Train
+    import time as _time
+    _t0 = _time.time()
     trainer.train()
+    train_seconds = _time.time() - _t0
+    try:
+        tracker.log_metrics({"train_seconds": float(train_seconds)})
+    except Exception:
+        pass
 
-    # Evaluate on val and test
+    # Evaluate on val and test (overall)
     val_metrics = trainer.evaluate(ds_val)
+    _t1 = _time.time()
     test_metrics = trainer.evaluate(ds_test)
+    test_eval_seconds = _time.time() - _t1
+    try:
+        test_throughput = float(len(ds_test)) / test_eval_seconds if test_eval_seconds > 0 else 0.0
+    except Exception:
+        test_throughput = 0.0
+
+    # Collect predictions/logits for per-language metrics and calibration
+    pred_val = trainer.predict(ds_val)
+    pred_test = trainer.predict(ds_test)
+    logits_val = pred_val.predictions
+    labels_val = pred_val.label_ids
+    logits_test = pred_test.predictions
+    labels_test = pred_test.label_ids
+
+    # Extract lang_idx arrays if available
+    lang_idx_val = None
+    lang_idx_test = None
+    idx_to_lang = None
+    try:
+        if lang_map is not None:
+            idx_to_lang = lang_map.idx_to_lang
+            # datasets map storage -> need to access underlying columns
+            lang_idx_val = np.array(ds_val["lang_idx"]) if "lang_idx" in ds_val.column_names else None
+            lang_idx_test = np.array(ds_test["lang_idx"]) if "lang_idx" in ds_test.column_names else None
+    except Exception:
+        pass
+
+    # Per-language metrics
+    lang_metrics_val = per_language_metrics(logits_val, labels_val, lang_idx_val, idx_to_lang) if idx_to_lang is not None else {}
+    lang_metrics_test = per_language_metrics(logits_test, labels_test, lang_idx_test, idx_to_lang) if idx_to_lang is not None else {}
+
+    # Calibration summaries (overall)
+    calib_val = compute_calibration_summary(logits=logits_val, y_idx=labels_val, n_bins=15,
+                                            diagram_png=str(out_dir / "val_reliability.png"),
+                                            bins_json=str(out_dir / "val_reliability.json"),
+                                            title="Val calibration")
+    calib_test = compute_calibration_summary(logits=logits_test, y_idx=labels_test, n_bins=15,
+                                             diagram_png=str(out_dir / "test_reliability.png"),
+                                             bins_json=str(out_dir / "test_reliability.json"),
+                                             title="Test calibration")
+
+    # Calibration per-language
+    calib_val_lang: Dict[str, Dict[str, float]] = {}
+    calib_test_lang: Dict[str, Dict[str, float]] = {}
+    if idx_to_lang is not None and lang_idx_val is not None:
+        for li, lang in idx_to_lang.items():
+            m = (lang_idx_val == li)
+            if m.sum() > 0:
+                calib_val_lang[lang] = compute_calibration_summary(logits=logits_val[m], y_idx=labels_val[m], n_bins=10)
+    if idx_to_lang is not None and lang_idx_test is not None:
+        for li, lang in idx_to_lang.items():
+            m = (lang_idx_test == li)
+            if m.sum() > 0:
+                calib_test_lang[lang] = compute_calibration_summary(logits=logits_test[m], y_idx=labels_test[m], n_bins=10)
 
     # Log to tracker
     try:
-        tracker.log_metrics({
+        base_metrics = {
             "val_accuracy": float(val_metrics.get("eval_accuracy", 0.0)),
             "val_f1_macro": float(val_metrics.get("eval_f1_macro", val_metrics.get("eval_f1", 0.0))),
             "test_accuracy": float(test_metrics.get("eval_accuracy", 0.0)),
             "test_f1_macro": float(test_metrics.get("eval_f1_macro", test_metrics.get("eval_f1", 0.0))),
-        })
+            "test_eval_seconds": float(test_eval_seconds),
+            "test_throughput_examples_per_sec": float(test_throughput),
+            # calibration
+            "val_ece": float(calib_val.get("ece", 0.0)),
+            "val_brier": float(calib_val.get("brier", 0.0)),
+            "test_ece": float(calib_test.get("ece", 0.0)),
+            "test_brier": float(calib_test.get("brier", 0.0)),
+        }
+        tracker.log_metrics(base_metrics | {f"val_{k}": v for k, v in lang_metrics_val.items()} | {f"test_{k}": v for k, v in lang_metrics_test.items()})
     except Exception:
         pass
 
     # Save model and tokenizer
     trainer.save_model(out_dir)
     tokenizer.save_pretrained(out_dir)
+    # If a custom tokenizer was used, copy tokenizer_report.json into run dir
+    try:
+        if args.tokenizer_path:
+            from shutil import copyfile
+            tok_report_src = Path(args.tokenizer_path) / "tokenizer_report.json"
+            tok_report_dst = out_dir / "tokenizer_report.json"
+            if tok_report_src.exists():
+                copyfile(tok_report_src, tok_report_dst)
+                try:
+                    tracker.log_artifact(tok_report_dst, artifact_path="artifacts")
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     # Save normalization config
     try:
@@ -345,11 +641,31 @@ def main() -> None:
         "label_order": LABELS,
         "val": val_metrics,
         "test": test_metrics,
+        "per_language": {
+            "val": lang_metrics_val,
+            "test": lang_metrics_test,
+        },
+        "calibration": {
+            "val": calib_val,
+            "test": calib_test,
+            "val_by_lang": calib_val_lang,
+            "test_by_lang": calib_test_lang,
+        },
+        "timing": {
+            "train_seconds": float(train_seconds) if 'train_seconds' in locals() else None,
+            "test_eval_seconds": float(test_eval_seconds) if 'test_eval_seconds' in locals() else None,
+            "test_throughput_examples_per_sec": float(test_throughput) if 'test_throughput' in locals() else None,
+        },
+        "model_params": {
+            "total": int(total_params) if total_params is not None else None,
+            "trainable": int(trainable_params) if trainable_params is not None else None,
+        },
         "args": {
             "input": str(input_path),
             "use_splits": bool(args.use_splits),
             "output_dir": str(out_dir),
             "model_name": args.model_name,
+            "tokenizer_path": args.tokenizer_path,
             "epochs": int(args.epochs),
             "batch_size": int(args.batch_size),
             "lr": float(args.lr),
@@ -365,7 +681,14 @@ def main() -> None:
             "val_ratio": float(args.val_ratio),
             "test_ratio": float(args.test_ratio),
             "group_column": args.group_column,
-            # Normalization flags and resolved config for reproducibility
+            "lang_column": args.lang_column,
+            "langs": args.langs,
+            "stratify_by_lang": bool(args.stratify_by_lang),
+            "dual_head": bool(args.dual_head),
+            "class_weighting": args.class_weighting,
+            "focal_loss": bool(args.focal_loss),
+            "focal_gamma": float(args.focal_gamma),
+            # Normalization flags
             "normalize_all": bool(args.normalize_all),
             "norm_nfc": bool(args.norm_nfc),
             "norm_whitespace": bool(args.norm_whitespace),
@@ -389,9 +712,16 @@ def main() -> None:
     # Track artifacts
     try:
         tracker.log_artifact(out_dir / "metrics.json")
-        tracker.log_artifact(out_dir / "pytorch_model.bin", artifact_path="artifacts")
-        tracker.log_artifact(out_dir / "config.json", artifact_path="artifacts")
+        # Model files: either standard HF or our custom routed model (state_dict)
+        if hasattr(model, "save_pretrained"):
+            tracker.log_artifact(out_dir / "pytorch_model.bin", artifact_path="artifacts")
+            tracker.log_artifact(out_dir / "config.json", artifact_path="artifacts")
         tracker.log_artifact(out_dir / "tokenizer.json", artifact_path="artifacts")
+        # Calibration outputs
+        tracker.log_artifact(out_dir / "val_reliability.json", artifact_path="artifacts")
+        tracker.log_artifact(out_dir / "test_reliability.json", artifact_path="artifacts")
+        tracker.log_artifact(out_dir / "val_reliability.png", artifact_path="artifacts")
+        tracker.log_artifact(out_dir / "test_reliability.png", artifact_path="artifacts")
     except Exception:
         pass
 

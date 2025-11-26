@@ -72,7 +72,6 @@ Outputs (under `--output_dir`):
 ---
 
 ### 3. Train a Transformer Model
->>> Ensure hyperparameters and flags reflect current script expectations; mention optional tokenizer integration in user guide.
 
 Train a multilingual transformer (e.g., XLM-RoBERTa) with the same dataset and normalization:
 
@@ -89,7 +88,7 @@ python modeling/train_transformer.py \
   --seed 123
 ```
 
-Core hyperparameters (CLI flags): `--epochs`, `--batch_size`, `--lr`, `--weight_decay`, `--warmup_ratio`, `--max_length`, `--grad_accum`, `--fp16`.
+Core hyperparameters (CLI flags): `--epochs`, `--batch_size`, `--lr`, `--weight_decay`, `--warmup_ratio`, `--max_length`, `--grad_accum`, `--fp16`. Optional: `--tokenizer_path` to use a custom tokenizer directory. The script also logs parameter counts and timing (train_seconds and test throughput).
 
 ---
 
@@ -140,7 +139,6 @@ For more details (including group-based analysis and error inspection), see the 
 ---
 
 ## Experiments & Reproducibility
->>> Point to concrete configs present in experiments/ and confirm MLflow default under ./mlruns.
 
 Core experiment grids are defined under `experiments/` and run with:
 

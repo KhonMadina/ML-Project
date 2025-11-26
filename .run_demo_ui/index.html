@@ -138,7 +138,11 @@
   </main>
 
   <script>
-    async function req(url, opts={}) { const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts }); if (!r.ok) throw new Error(`${url} -> ${r.status}`); return r.json(); }
+
+    const __API_BASE = 'http://127.0.0.1:8000';
+    function __withBase(u){ try{ if(typeof u==='string' && u.startsWith('/')) return __API_BASE + u; }catch(e){} return u; }
+
+    async function req(url, opts={}) { const r = await fetch(__withBase(url), { headers: { 'Content-Type': 'application/json' }, ...opts }); if (!r.ok) throw new Error(`${url} -> ${r.status}`); return r.json(); }
     const els = id => document.getElementById(id);
 
     const modelSelect = els('modelSelect');
