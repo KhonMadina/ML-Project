@@ -349,13 +349,16 @@ def list_models():
         for p in root.iterdir():
             if not p.is_dir():
                 continue
-            entry = {"path": str(p), "name": p.name, "has_metrics": (p / "metrics.json").exists()}
+            # Determine model type; skip unknown types
             if (p / "vectorizer.pkl").exists() and (p / "model.pkl").exists():
-                entry["type"] = "baseline"
+                model_type = "baseline"
             elif (p / "config.json").exists() or (p / "pytorch_model.bin").exists():
-                entry["type"] = "transformer"
+                model_type = "transformer"
             else:
-                entry["type"] = "unknown"
+                # Exclude directories that do not contain recognizable model artifacts
+                continue
+
+            entry = {"path": str(p), "name": p.name, "type": model_type, "has_metrics": (p / "metrics.json").exists()}
             if entry["has_metrics"]:
                 try:
                     m = json.loads((p / "metrics.json").read_text(encoding="utf-8"))
