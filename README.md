@@ -15,6 +15,8 @@ Recent upgrades:
 - Research protocol, dataset card, and experiment playbooks
 - Bilingual features, per-language metrics, and calibration summaries
 - System diagrams clarifying pipeline and components
+- Programmatic ExperimentManager API and REST endpoints for launching/monitoring runs
+- Enhanced demo UI: launch runs, list runs, view details, and tail logs
 
 ---
 
@@ -81,6 +83,11 @@ python modeling/train_transformer.py \
 
 Core flags: `--epochs`, `--batch_size`, `--lr`, `--weight_decay`, `--warmup_ratio`, `--max_length`, `--grad_accum`, `--fp16`, `--tokenizer_path`.
 
+Notes and performance:
+- Windows stability: the script disables invalid args to HF Trainer and pins dataloader memory on CUDA automatically.
+- Memory: enable `--grad_checkpointing` to reduce peak memory; on Ampere+ GPUs TF32 is enabled for faster matmul.
+- Warmup/schedule: `--warmup_ratio` with linear scheduler is used by default.
+
 ---
 
 ### 4. Train a Khmer Tokenizer
@@ -131,6 +138,62 @@ Checklist (thesis-grade):
 ---
 
 ## Experiments & Reproducibility
+
+### A. Programmatic Experiment API
+
+Use ExperimentManager to run tracked tasks from Python without the CLI:
+
+```python
+from modeling.utils.experiment import Config
+from modeling.utils.experiment_manager import ExperimentManager
+import subprocess, sys
+
+def train_task(cfg: Config):
+    cmd = [
+        sys.executable, "-m", "modeling.train_transformer",
+        "--input", cfg.params["input"],
+        "--output_dir", cfg.output_dir,
+        "--epochs", str(cfg.params.get("epochs", 1)),
+    ]
+    subprocess.check_call(cmd)
+
+cfg = Config(
+    experiment_name="programmatic_run",
+    tracking="none",
+    output_dir="runs/programmatic_run",
+    params={"input": "sample_data/final_dataset.csv", "epochs": 1},
+)
+res = ExperimentManager(cfg).run_task(train_task, extra_tags={"launcher": "api"})
+print(res.status, res.output_dir, res.metrics_path)
+```
+
+Artifacts include `run_summary.json` in the output directory.
+
+### B. REST API for Runs and Inference
+
+Start server:
+
+```bash
+uvicorn api.server:app --host 0.0.0.0 --port 8000
+```
+
+Key endpoints:
+- POST `/v1/experiments/run` – launch a training job (body fields mirror train_transformer args)
+- GET `/v1/experiments` – list active and completed runs
+- GET `/v1/experiments/{id}` – run details
+- GET `/v1/experiments/{id}/artifacts` – list artifact files with URLs
+- GET `/v1/experiments/{id}/log?tail=300` – tail logs
+- Existing endpoints: `/v1/models`, `/v1/models/select`, `/v1/infer`, `/v1/tokenize`, stress and reports.
+
+### C. Demo UI
+
+Open http://127.0.0.1:8000/
+- Launch training: specify Input CSV, model, epochs, batch, device, fp16, grad checkpointing.
+- Runs: list, open a run, view details, and tail logs inline.
+- Model card: browse metrics and reliability diagrams.
+- Reports: export and browse overview/plots.
+
+If you host API elsewhere, set API_CORS_ORIGINS.
 
 Run grids with:
 

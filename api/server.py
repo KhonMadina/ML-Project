@@ -37,9 +37,32 @@ def file_url(path: Path) -> str:
 
 # Project imports
 from modeling.text_normalization import load_norm_config, normalize_corpus
-from modeling import stress_eval as stress
+# Lazy-load heavy optional module to keep /v1/health working even if optional deps are missing
+# (e.g., scikit-learn, pandas, transformers). This prevents import-time failures from
+# breaking basic API startup and health checks.
+def _get_stress():
+    try:
+        from modeling import stress_eval as stress  # type: ignore
+        return stress
+    except Exception:
+        return None
 
 app = FastAPI(title="Khmer+English Sentiment API", version="1.1.0")
+
+# Debug helpers: route listing and startup log
+@app.on_event("startup")
+async def _startup_log_routes():
+    try:
+        logger.info("Registered routes: %s", [getattr(r, "path", "") for r in app.router.routes])
+    except Exception:
+        pass
+
+@app.get("/routes")
+def list_routes():
+    try:
+        return {"routes": [getattr(r, "path", "") for r in app.router.routes]}
+    except Exception:
+        return {"routes": []}
 
 # CORS: allow local dev origins by default; override via API_CORS_ORIGINS env (comma-separated)
 _default_origins = [
@@ -461,19 +484,28 @@ def tokenize(req: TokenizeRequest):
 
 @app.get("/v1/stress/presets")
 def stress_presets():
-    return {"presets": sorted(list(stress.PRESETS.keys()))}
+    s = _get_stress()
+    if s is None:
+        raise HTTPException(status_code=503, detail="stress_eval dependencies not installed; install scikit-learn joblib pandas to enable stress endpoints")
+    return {"presets": sorted(list(s.PRESETS.keys()))}
 
 @app.post("/v1/stress/transform")
 def stress_transform(req: StressTransformRequest):
-    if req.preset not in stress.PRESETS:
+    s = _get_stress()
+    if s is None:
+        raise HTTPException(status_code=503, detail="stress_eval dependencies not installed; install scikit-learn joblib pandas to enable stress endpoints")
+    if req.preset not in s.PRESETS:
         raise HTTPException(status_code=400, detail=f"Unknown preset '{req.preset}'")
-    fn = stress.PRESETS[req.preset]
+    fn = s.PRESETS[req.preset]
     out = [fn(t, req.severity, req.prob) for t in req.texts]
     return {"preset": req.preset, "severity": req.severity, "prob": req.prob, "texts": out}
 
 
 @app.post("/v1/stress/eval")
 def stress_eval(req: StressEvalRequest):
+    s = _get_stress()
+    if s is None:
+        raise HTTPException(status_code=503, detail="stress_eval dependencies not installed; install scikit-learn joblib pandas to enable stress endpoints")
     if CURRENT.mode is None:
         raise HTTPException(status_code=400, detail="No model loaded; call /v1/models/select first")
     if len(req.items) > MAX_BATCH_SIZE:
@@ -485,7 +517,7 @@ def stress_eval(req: StressEvalRequest):
     if CURRENT.norm_cfg:
         texts = normalize_corpus(texts, CURRENT.norm_cfg)
     if req.preset:
-        fn = stress.PRESETS.get(req.preset)
+        fn = s.PRESETS.get(req.preset)
         if fn is None:
             raise HTTPException(status_code=400, detail=f"Unknown preset '{req.preset}'")
         texts = [fn(t, req.severity, req.prob) for t in texts]
@@ -493,11 +525,11 @@ def stress_eval(req: StressEvalRequest):
     cats = [r["category"] for r in rows]
 
     if CURRENT.mode == "baseline":
-        preds = stress.predict_baseline(CURRENT.vectorizer, CURRENT.model, texts)
+        preds = s.predict_baseline(CURRENT.vectorizer, CURRENT.model, texts)
     else:
-        preds = stress.predict_transformer(CURRENT.tokenizer, CURRENT.model, texts)
+        preds = s.predict_transformer(CURRENT.tokenizer, CURRENT.model, texts)
 
-    acc, f1m, report, cm = stress.compute_metrics(gold, preds)
+    acc, f1m, report, cm = s.compute_metrics(gold, preds)
     per_cat: Dict[str, Dict[str, Any]] = {}
     for cat in sorted(set(cats)):
         idx = [i for i, c in enumerate(cats) if c == cat]
@@ -505,7 +537,7 @@ def stress_eval(req: StressEvalRequest):
             continue
         g = [gold[i] for i in idx]
         p = [preds[i] for i in idx]
-        a2, f2, rpt2, cm2 = stress.compute_metrics(g, p)
+        a2, f2, rpt2, cm2 = s.compute_metrics(g, p)
         per_cat[cat] = {"count": len(idx), "accuracy": a2, "f1_macro": f2, "report": rpt2, "confusion": cm2}
 
     return {"overall": {"accuracy": acc, "f1_macro": f1m, "confusion": cm, "report": report}, "per_category": per_cat}
@@ -580,3 +612,5 @@ def iaa_compute(req: IAARequest):
             rows.append(r)
     res = _compute(rows, req.lang_column)
     return res
+
+#

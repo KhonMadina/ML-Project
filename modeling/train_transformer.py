@@ -69,6 +69,12 @@ try:
         set_seed,
     )
     import evaluate  # type: ignore[import]
+    try:
+        EVAL_METRIC_ACC = evaluate.load("accuracy")
+        EVAL_METRIC_F1 = evaluate.load("f1")
+    except Exception:
+        EVAL_METRIC_ACC = None
+        EVAL_METRIC_F1 = None
 except Exception as e:
     raise SystemExit(
         "Missing dependency. Install with: pip install transformers datasets accelerate evaluate torch\n"
@@ -171,6 +177,7 @@ class LanguageRoutedSequenceClassifier(nn.Module):
         self.dropout = nn.Dropout(dropout_p)
         self.num_labels = int(num_labels)
         self.langs = [str(l).lower() for l in langs]
+        self.lang_to_idx = {l: i for i, l in enumerate(self.langs)}
         # language-specific heads
         self.heads = nn.ModuleDict({l: nn.Linear(hidden, num_labels) for l in self.langs})
         # default head for unknown/missing language values
@@ -185,22 +192,23 @@ class LanguageRoutedSequenceClassifier(nn.Module):
         if lang_idx is None:
             logits = self.default_head(cls)
         else:
-            # Build logits routing by language groups in the batch
             B = cls.shape[0]
             device = cls.device
             logits = torch.zeros((B, self.num_labels), dtype=cls.dtype, device=device)
-            # For each language present in self.langs, route corresponding items
-            for lang, head in self.heads.items():
-                # Build mask for this language index
-                lang_i = self.langs.index(lang)
-                mask = (lang_idx == lang_i)
-                if mask.any():
-                    logits[mask] = head(cls[mask])
-            # Remaining (mask == False for all) go to default head
-            default_mask = torch.ones((B,), dtype=torch.bool, device=device)
-            for lang in self.langs:
-                li = self.langs.index(lang)
-                default_mask &= (lang_idx != li)
+            # Route by language indices present in the batch
+            unique_vals = torch.unique(lang_idx.detach())
+            for li in unique_vals.tolist():
+                if li < 0:
+                    continue
+                if 0 <= li < len(self.langs):
+                    lkey = self.langs[li]
+                    head = self.heads.get(lkey, None)
+                    if head is not None:
+                        mask = (lang_idx == li)
+                        if mask.any():
+                            logits[mask] = head(cls[mask])
+            # Remaining items route to default head
+            default_mask = ~((lang_idx >= 0) & (lang_idx < len(self.langs)))
             if default_mask.any():
                 logits[default_mask] = self.default_head(cls[default_mask])
 
@@ -270,8 +278,8 @@ def compute_class_weights(rows: List[Row]) -> List[float]:
 
 
 def per_language_metrics(preds_logits: np.ndarray, labels: np.ndarray, lang_idx: Optional[np.ndarray], idx_to_lang: Optional[Dict[int, str]]):
-    metric_acc = evaluate.load("accuracy")
-    metric_f1 = evaluate.load("f1")
+    metric_acc = EVAL_METRIC_ACC or evaluate.load("accuracy")
+    metric_f1 = EVAL_METRIC_F1 or evaluate.load("f1")
     out: Dict[str, float] = {}
     if lang_idx is None or idx_to_lang is None:
         return out
@@ -300,6 +308,8 @@ def add_common_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--max_length", type=int, default=192)
     ap.add_argument("--grad_accum", type=int, default=1)
     ap.add_argument("--fp16", action="store_true")
+    ap.add_argument("--num_workers", type=int, default=0, help="DataLoader workers; 0 is safest on Windows")
+    ap.add_argument("--grad_checkpointing", action="store_true", help="Enable gradient checkpointing to reduce memory usage")
 
     # Device control
     ap.add_argument("--device", type=str, default="cpu", choices=["auto", "cpu", "cuda"], help="Device preference: auto picks CUDA if safe, else CPU")
@@ -359,6 +369,14 @@ def main() -> None:
     # Resolve device safely
     dev_ctx = get_device(args.device, args.cuda_device)
     print(f"Using device: {dev_ctx.device}")
+    try:
+        if dev_ctx.is_cuda:
+            torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore[attr-defined]
+            torch.backends.cudnn.allow_tf32 = True  # type: ignore[attr-defined]
+            if hasattr(torch, "set_float32_matmul_precision"):
+                torch.set_float32_matmul_precision("high")  # torch>=2.0
+    except Exception:
+        pass
 
     # Prepare experiment (seed + tracking)
     exp_cfg = ExpConfig.from_yaml(args.config)
@@ -442,6 +460,13 @@ def main() -> None:
                 )
             raise
 
+    # Enable gradient checkpointing if requested and supported
+    try:
+        if args.grad_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable()
+    except Exception:
+        pass
+
     # Parameter counts
     try:
         total_params = sum(p.numel() for p in model.parameters())
@@ -459,8 +484,8 @@ def main() -> None:
         pass
 
     # Metrics function (overall only here; per-language computed post-hoc)
-    metric_acc = evaluate.load("accuracy")
-    metric_f1 = evaluate.load("f1")
+    metric_acc = EVAL_METRIC_ACC or evaluate.load("accuracy")
+    metric_f1 = EVAL_METRIC_F1 or evaluate.load("f1")
 
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
@@ -488,22 +513,40 @@ def main() -> None:
     else:
         report_to = "none"
 
-    training_args = TrainingArguments(
-        output_dir=str(out_dir),
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.lr,
-        weight_decay=args.weight_decay,
-        fp16=safe_fp16,
-        seed=args.seed,
-        logging_steps=50,
-        max_grad_norm=1.0,
-        use_cpu=not dev_ctx.is_cuda,
-        report_to=report_to,
-        dataloader_num_workers=0,
-    )
+    try:
+        training_args = TrainingArguments(
+            output_dir=str(out_dir),
+            num_train_epochs=args.epochs,
+            per_device_train_batch_size=args.batch_size,
+            per_device_eval_batch_size=args.batch_size,
+            gradient_accumulation_steps=args.grad_accum,
+            learning_rate=args.lr,
+            weight_decay=args.weight_decay,
+            warmup_ratio=args.warmup_ratio,
+            lr_scheduler_type="linear",
+            fp16=safe_fp16,
+            seed=args.seed,
+            logging_steps=50,
+            max_grad_norm=1.0,
+            report_to=report_to,
+            dataloader_num_workers=args.num_workers,
+            dataloader_pin_memory=dev_ctx.is_cuda,
+        )
+    except TypeError as _e:
+        print(f"Warning: falling back to minimal TrainingArguments due to version incompatibility: {_e}")
+        training_args = TrainingArguments(
+            output_dir=str(out_dir),
+            num_train_epochs=args.epochs,
+            per_device_train_batch_size=args.batch_size,
+            per_device_eval_batch_size=args.batch_size,
+            gradient_accumulation_steps=args.grad_accum,
+            learning_rate=args.lr,
+            weight_decay=args.weight_decay,
+            fp16=safe_fp16,
+            seed=args.seed,
+            logging_steps=50,
+            max_grad_norm=1.0,
+        )
 
     # Class weighting / focal loss
     class_weights = None
@@ -516,7 +559,7 @@ def main() -> None:
         args=training_args,
         train_dataset=ds_train,
         eval_dataset=ds_val,
-        processing_class=tokenizer,
+        tokenizer=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
         class_weights=class_weights,

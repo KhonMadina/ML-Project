@@ -207,8 +207,16 @@ def stratified_split(
         items = items.copy()
         random.shuffle(items)
         n = len(items)
-        n_train = int(n * train_ratio)
-        n_val = int(n * val_ratio)
+        n_train = int(round(n * train_ratio))
+        n_val = int(round(n * val_ratio))
+        # ensure sum to n
+        if n_train + n_val > n:
+            overflow = (n_train + n_val) - n
+            reduce_val = min(overflow, max(0, n_val))
+            n_val -= reduce_val
+            overflow -= reduce_val
+            if overflow > 0:
+                n_train -= overflow
         n_test = n - n_train - n_val
         train.extend(items[:n_train])
         val.extend(items[n_train:n_train + n_val])
